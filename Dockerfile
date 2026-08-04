@@ -3,6 +3,7 @@ WORKDIR /app
 
 ARG PUBLIC_SUPABASE_URL
 ARG PUBLIC_SUPABASE_PUBLISHABLE_KEY
+ARG PUBLIC_CLERK_PUBLISHABLE_KEY
 
 # Pin pnpm to v9 (matches local, avoids pnpm 11 onlyBuiltDependencies workspace-yaml changes)
 RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
@@ -13,9 +14,11 @@ RUN pnpm install --config.minimumReleaseAge=0 --config.onlyBuiltDependencies.esb
 COPY . .
 ENV PUBLIC_SUPABASE_URL=$PUBLIC_SUPABASE_URL
 ENV PUBLIC_SUPABASE_PUBLISHABLE_KEY=$PUBLIC_SUPABASE_PUBLISHABLE_KEY
+ENV PUBLIC_CLERK_PUBLISHABLE_KEY=$PUBLIC_CLERK_PUBLISHABLE_KEY
 RUN pnpm build
 
 FROM nginx:alpine AS runtime
+COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 
 EXPOSE 80
