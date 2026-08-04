@@ -1,0 +1,44 @@
+CONTEXT: You are scaffolding a new project in /home/glados/projects/buildorders (already git-init on branch 'develop'). This is an AoE4 build-order analyzer web app. The operator (Thomas) is a perfectionist: shadcn/ui MUST be stock (CLI only), ZERO custom CSS, ZERO style={{}} props, ZERO tailwind config hacks. Vanilla only. French operator, English code. GitFlow: work on a feature branch, NEVER commit directly to main/develop.
+
+IMPORTANT NON-INTERACTIVE RULES:
+- You are running in a non-interactive shell. Every CLI prompt will hang/fail if you don't pass non-interactive flags.
+- `npm create astro@latest` -> use flags to avoid prompts: `npm create astro@latest@latest . -- --template minimal --no-install --no-git --typescript strict --no-add-ons` (verify exact flags via `npm create astro@latest --help` first; adjust). Then run `pnpm install` yourself.
+- `npx astro add react` -> must pass `-y`/`--yes` (and `--install` not needed since pnpm). Use `npx astro add react -y`.
+- `npx shadcn@latest init` -> pass `-d` (defaults) and `-y` (skip confirmation). Use `npx shadcn@latest init -d -y`. If it complains about an existing tailwind config, run it in the project root.
+- `npx shadcn@latest add button card tabs badge separator table -y`.
+- If any command still prompts, append `-y`/`--yes` or pipe `yes '' |` and retry. Never leave a command hanging.
+
+TASKS (do ALL):
+1. Create feature branch 'feature/BO-scaffold' from develop: `git checkout -b feature/BO-scaffold`.
+2. Scaffold an Astro project (output: static, TypeScript) in the CURRENT directory (.). Use pnpm. Verify the exact current Astro CLI flags via `npm create astro@latest --help` rather than guessing. Init with React integration (`npx astro add react -y`).
+3. Init shadcn/ui via CLI (`npx shadcn@latest init -d -y`) in Astro mode, vanilla, stock components. Add: button, card, tabs, badge, separator, table. Do NOT modify generated CSS beyond shadcn defaults.
+4. Define TS types per spec -> src/lib/types.ts:
+   BuildOrder { id: string; civ: string; type: 'rush'|'boom'|'turtle'|'fast-castle'|'defensive'|'other'; sourceUrl: string; sourceType: 'aoe4world'|'youtube'|'ageofempires'|'manual'; phases: Phase[]; notes?: string; scenarios?: Scenario[] }
+   Phase { age: 'dark'|'feudal'|'castle'|'imperial'; timeStart: number; actions: Action[]; targetResources?: {food:number;wood:number;gold:number;stone:number}; targetVillagers?: number }
+   Action { at: number; description: string; kind?: 'build'|'research'|'train'|'gather'|'tech'|'age-up' }
+   Scenario { id: string; label: string; branchAt: number; variant: Partial<BuildOrder> }
+5. src/lib/mock-data.ts: export a fully normalized HRE (Holy Roman Empire) Fast Castle build order (realistic AoE4 timings, dark/feudal/castle phases with many actions, target resources & villagers). This is stub data used until DB is wired.
+6. UI (Astro page + React islands):
+   - src/pages/index.astro: title 'BuildOrders', header, and:
+     - Timeline island (React .tsx, client:load): renders mock BuildOrder grouped by age; each Action as a card/badge with time (mm:ss) + description; per-phase target resources & villager count. Use shadcn Card, Badge, Separator, Tabs.
+     - Cheatsheet island (React): compact printable layout (table per age) of same mock data.
+     - Scenarios placeholder island: 'Scénarios branchés — à venir' using shadcn Card.
+   - Styling via shadcn/Tailwind classes ONLY. No inline styles.
+7. src/lib/supabase.ts: init browser client using import.meta.env.PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_ANON_KEY (safe fallback undefined if unset). Must exist and compile. Do NOT hardcode real keys.
+8. Edge Function stub (Deno): supabase/functions/parse-build-order/index.ts. Default Deno.serve handler:
+   - POST JSON { url: string }
+   - returns JSON mock normalized BuildOrder (same shape), echoing url as sourceUrl
+   - sets CORS headers
+   Deno-compatible only; no external deps.
+9. Dockerfile (root): multi-stage. Stage1 builds Astro static (pnpm install, pnpm build). Stage2 serves dist/ with lightweight static server (nginx:alpine OR node:alpine). Expose 80.
+10. deploy/docker-compose.yml: Traefik labels host 'buildorders.aperture-agency.org', tls letsencrypt, entrypoint websecure, network 'web'. Consistent with standard Traefik Docker routing.
+11. README.md: local run, build, env vars (PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_ANON_KEY), deploy note.
+12. `git add -A` and commit on feature/BO-scaffold with clear English message. Do NOT push, do NOT merge to develop/main.
+
+CONSTRAINTS:
+- No custom CSS or inline styles. shadcn stock only.
+- Do not touch /etc, /opt, security configs, docker host settings, /opt/infrastructure.
+- Verify build passes: run `pnpm build` (or `pnpm astro build`) and ensure success before committing. Fix any issues.
+- If a CLI command is ambiguous, check real current docs via web or npm.
+
+Report back: files created, build result (success/fail tail), and deviations.
