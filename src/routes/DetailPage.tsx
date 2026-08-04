@@ -4,8 +4,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@clerk/clerk-react';
 import { getBuildOrder, deleteBuildOrder } from '@/lib/api';
 import type { BuildOrder } from '@/lib/types';
-import { Timeline } from '@/components/Timeline';
-import { Cheatsheet } from '@/components/Cheatsheet';
+import { BuildOrderFlow } from '@/components/BuildOrderFlow';
 import { Scenarios } from '@/components/Scenarios';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -133,6 +132,15 @@ export function DetailPage() {
         )}
       </div>
 
+      <section className="space-y-4">
+        <h2 className="text-xl font-semibold">Build Order</h2>
+        <Card>
+          <CardContent className="h-[600px]">
+            <BuildOrderFlow buildOrder={buildOrder} />
+          </CardContent>
+        </Card>
+      </section>
+
       {buildOrder.notes && (
         <Card>
           <CardHeader>
@@ -143,18 +151,6 @@ export function DetailPage() {
           </CardContent>
         </Card>
       )}
-
-      <section className="space-y-4">
-        <h2 className="text-xl font-semibold">Timeline</h2>
-        <Timeline buildOrder={buildOrder} />
-      </section>
-
-      <Separator />
-
-      <section className="space-y-4">
-        <h2 className="text-xl font-semibold">Cheatsheet</h2>
-        <Cheatsheet buildOrder={buildOrder} />
-      </section>
 
       <Separator />
 
