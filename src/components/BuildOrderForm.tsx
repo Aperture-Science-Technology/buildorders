@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
+import { toast } from 'sonner';
 import type { BuildOrder, Action, Phase } from '@/lib/types';
-import type { BuildOrderInput } from '@/lib/api';
+import { parseBuildOrderUrl, type BuildOrderInput } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -29,6 +30,7 @@ const SOURCE_TYPE_OPTIONS: { value: BuildOrder['sourceType']; label: string }[] 
   { value: 'aoe4world', label: 'aoe4world.com' },
   { value: 'youtube', label: 'YouTube' },
   { value: 'ageofempires', label: 'ageofempires.com' },
+  { value: 'aoeivbuilds', label: 'aoeivbuilds.com' },
   { value: 'manual', label: 'Manuel' },
 ];
 
@@ -105,6 +107,29 @@ export function BuildOrderForm({
   const [phases, setPhases] = useState<PhaseDraft[]>(
     initial?.phases.length ? initial.phases.map(phaseToDraft) : [emptyPhase()],
   );
+  const [importUrl, setImportUrl] = useState('');
+  const [importing, setImporting] = useState(false);
+
+  async function handleImport() {
+    if (!importUrl.trim()) return;
+    setImporting(true);
+    try {
+      const parsed = await parseBuildOrderUrl(importUrl.trim());
+      setCiv(parsed.civ);
+      setType(parsed.type);
+      setSourceUrl(parsed.sourceUrl);
+      setSourceType(parsed.sourceType);
+      setNotes(parsed.notes ?? '');
+      setPhases(parsed.phases.length ? parsed.phases.map(phaseToDraft) : [emptyPhase()]);
+      toast.success('Build order importé');
+    } catch (error) {
+      toast.error('Import impossible', {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setImporting(false);
+    }
+  }
 
   function updatePhase(index: number, patch: Partial<PhaseDraft>) {
     setPhases((prev) => prev.map((phase, i) => (i === index ? { ...phase, ...patch } : phase)));
@@ -179,6 +204,24 @@ export function BuildOrderForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Importer depuis une URL</CardTitle>
+        </CardHeader>
+        <CardContent className="flex gap-2">
+          <Input
+            type="url"
+            value={importUrl}
+            onChange={(event) => setImportUrl(event.target.value)}
+            placeholder="https://www.aoeivbuilds.com/build_orders/118"
+            aria-label="URL à importer"
+          />
+          <Button type="button" onClick={handleImport} disabled={importing || !importUrl.trim()}>
+            {importing ? 'Import en cours…' : 'Importer'}
+          </Button>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>Informations générales</CardTitle>

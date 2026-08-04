@@ -3,7 +3,7 @@ export interface BuildOrder {
   civ: string;
   type: 'rush' | 'boom' | 'turtle' | 'fast-castle' | 'defensive' | 'other';
   sourceUrl: string;
-  sourceType: 'aoe4world' | 'youtube' | 'ageofempires' | 'manual';
+  sourceType: 'aoe4world' | 'youtube' | 'ageofempires' | 'aoeivbuilds' | 'manual';
   phases: Phase[];
   notes?: string;
   scenarios?: Scenario[];
