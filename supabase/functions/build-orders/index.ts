@@ -54,9 +54,24 @@ interface BuildOrderPayload {
   phases?: unknown;
   notes?: unknown;
   scenarios?: unknown;
+  gameModes?: unknown;
+  strengths?: unknown;
+  weaknesses?: unknown;
+  matchupNotes?: unknown;
+  difficulty?: unknown;
 }
 
-function toRow(payload: BuildOrderPayload): Record<string, unknown> {
+const GAME_MODES = ['1v1', '2v2', '3v3', '4v4', 'ffa'];
+
+function sanitizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+function toRow(payload: BuildOrderPayload): Record<string, unknown> | { error: string } {
   const row: Record<string, unknown> = {};
   if (payload.civ !== undefined) row.civ = payload.civ;
   if (payload.type !== undefined) row.type = payload.type;
@@ -65,6 +80,55 @@ function toRow(payload: BuildOrderPayload): Record<string, unknown> {
   if (payload.phases !== undefined) row.phases = payload.phases;
   if (payload.notes !== undefined) row.notes = payload.notes;
   if (payload.scenarios !== undefined) row.scenarios = payload.scenarios;
+
+  if (payload.gameModes !== undefined) {
+    const modes = sanitizeStringArray(payload.gameModes);
+    if (!modes.every((mode) => GAME_MODES.includes(mode))) {
+      return { error: `gameModes must only contain: ${GAME_MODES.join(', ')}` };
+    }
+    row.game_modes = modes;
+  }
+
+  if (payload.strengths !== undefined) {
+    row.strengths = sanitizeStringArray(payload.strengths);
+  }
+
+  if (payload.weaknesses !== undefined) {
+    row.weaknesses = sanitizeStringArray(payload.weaknesses);
+  }
+
+  if (payload.matchupNotes !== undefined) {
+    if (payload.matchupNotes !== null) {
+      if (
+        !Array.isArray(payload.matchupNotes) ||
+        !payload.matchupNotes.every(
+          (entry) =>
+            entry !== null &&
+            typeof entry === 'object' &&
+            typeof (entry as Record<string, unknown>).civ === 'string' &&
+            typeof (entry as Record<string, unknown>).note === 'string',
+        )
+      ) {
+        return { error: 'matchupNotes must be an array of { civ: string, note: string }' };
+      }
+    }
+    row.matchup_notes = payload.matchupNotes;
+  }
+
+  if (payload.difficulty !== undefined) {
+    if (payload.difficulty !== null) {
+      if (
+        typeof payload.difficulty !== 'number' ||
+        !Number.isInteger(payload.difficulty) ||
+        payload.difficulty < 1 ||
+        payload.difficulty > 5
+      ) {
+        return { error: 'difficulty must be an integer between 1 and 5' };
+      }
+    }
+    row.difficulty = payload.difficulty;
+  }
+
   return row;
 }
 
@@ -91,6 +155,7 @@ Deno.serve(async (req: Request) => {
 
   if (req.method === 'POST') {
     const row = toRow(body);
+    if ('error' in row) return json({ error: row.error }, 400);
     if (!row.civ || !row.type || !row.source_url || !row.source_type || !row.phases) {
       return json({ error: 'Missing required fields: civ, type, sourceUrl, sourceType, phases' }, 400);
     }
@@ -128,6 +193,7 @@ Deno.serve(async (req: Request) => {
   }
 
   const row = toRow(body);
+  if ('error' in row) return json({ error: row.error }, 400);
   const { data, error } = await supabaseAdmin
     .from('build_orders')
     .update(row)

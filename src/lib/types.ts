@@ -1,3 +1,10 @@
+export type GameMode = '1v1' | '2v2' | '3v3' | '4v4' | 'ffa';
+
+export interface MatchupNote {
+  civ: string;
+  note: string;
+}
+
 export interface BuildOrder {
   id: string;
   civ: string;
@@ -9,6 +16,11 @@ export interface BuildOrder {
   scenarios?: Scenario[];
   ownerId?: string;
   createdAt?: string;
+  gameModes?: GameMode[];
+  strengths?: string[];
+  weaknesses?: string[];
+  matchupNotes?: MatchupNote[];
+  difficulty?: number;
 }
 
 export interface Phase {
