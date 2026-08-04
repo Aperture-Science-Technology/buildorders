@@ -34,9 +34,13 @@ async function getUserId(req: Request): Promise<string | null> {
   const token = authHeader.slice('Bearer '.length);
   try {
     const { data, errors } = await verifyToken(token, { secretKey: CLERK_SECRET_KEY });
-    if (errors || !data) return null;
+    if (errors || !data) {
+      console.error('Clerk token verification failed:', errors?.map((e) => e.message).join('; '));
+      return null;
+    }
     return data.sub;
-  } catch {
+  } catch (err) {
+    console.error('Clerk token verification threw:', err instanceof Error ? err.message : String(err));
     return null;
   }
 }
