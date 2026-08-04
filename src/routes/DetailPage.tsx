@@ -1,0 +1,184 @@
+import { useEffect, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { toast } from 'sonner';
+import { useAuth } from '@clerk/clerk-react';
+import { getBuildOrder, deleteBuildOrder } from '@/lib/api';
+import type { BuildOrder } from '@/lib/types';
+import { Timeline } from '@/components/Timeline';
+import { Cheatsheet } from '@/components/Cheatsheet';
+import { Scenarios } from '@/components/Scenarios';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { PencilIcon, Trash2Icon } from 'lucide-react';
+
+const TYPE_LABELS: Record<BuildOrder['type'], string> = {
+  rush: 'Rush',
+  boom: 'Boom',
+  turtle: 'Turtle',
+  'fast-castle': 'Fast Castle',
+  defensive: 'Defensive',
+  other: 'Autre',
+};
+
+export function DetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { userId, getToken } = useAuth();
+  const [buildOrder, setBuildOrder] = useState<BuildOrder | null | undefined>(undefined);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+
+    getBuildOrder(id)
+      .then((data) => {
+        if (!cancelled) setBuildOrder(data);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        toast.error('Impossible de charger ce build order', {
+          description: error instanceof Error ? error.message : undefined,
+        });
+        setBuildOrder(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  async function handleDelete() {
+    if (!id) return;
+    setDeleting(true);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Session expirée, reconnectez-vous.');
+      await deleteBuildOrder(id, token);
+      toast.success('Build order supprimé');
+      navigate('/');
+    } catch (error) {
+      toast.error('Suppression impossible', {
+        description: error instanceof Error ? error.message : undefined,
+      });
+      setDeleting(false);
+      setConfirmOpen(false);
+    }
+  }
+
+  if (buildOrder === undefined) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-64" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
+  if (buildOrder === null) {
+    return (
+      <Card className="mx-auto max-w-md text-center">
+        <CardHeader>
+          <CardTitle>Build order introuvable</CardTitle>
+          <CardDescription>Il a peut-être été supprimé.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button render={<Link to="/" />}>Retour à la liste</Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const isOwner = Boolean(userId) && buildOrder.ownerId === userId;
+
+  return (
+    <div className="space-y-8">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="space-y-2">
+          <h1 className="text-2xl font-semibold tracking-tight">{buildOrder.civ}</h1>
+          <div className="flex flex-wrap gap-2">
+            <Badge>{TYPE_LABELS[buildOrder.type]}</Badge>
+            <Badge
+              variant="outline"
+              render={<a href={buildOrder.sourceUrl} target="_blank" rel="noreferrer" />}
+            >
+              Source : {buildOrder.sourceType}
+            </Badge>
+          </div>
+        </div>
+
+        {isOwner && (
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" render={<Link to={`/edit/${buildOrder.id}`} />}>
+              <PencilIcon />
+              Modifier
+            </Button>
+            <Button variant="destructive" size="sm" onClick={() => setConfirmOpen(true)}>
+              <Trash2Icon />
+              Supprimer
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {buildOrder.notes && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Notes</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm whitespace-pre-wrap text-muted-foreground">
+            {buildOrder.notes}
+          </CardContent>
+        </Card>
+      )}
+
+      <section className="space-y-4">
+        <h2 className="text-xl font-semibold">Timeline</h2>
+        <Timeline buildOrder={buildOrder} />
+      </section>
+
+      <Separator />
+
+      <section className="space-y-4">
+        <h2 className="text-xl font-semibold">Cheatsheet</h2>
+        <Cheatsheet buildOrder={buildOrder} />
+      </section>
+
+      <Separator />
+
+      <section className="space-y-4">
+        <h2 className="text-xl font-semibold">Scénarios</h2>
+        <Scenarios buildOrder={buildOrder} />
+      </section>
+
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Supprimer ce build order ?</DialogTitle>
+            <DialogDescription>Cette action est irréversible.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmOpen(false)}>
+              Annuler
+            </Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
+              {deleting ? 'Suppression…' : 'Supprimer'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

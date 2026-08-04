@@ -7,6 +7,8 @@ export interface BuildOrder {
   phases: Phase[];
   notes?: string;
   scenarios?: Scenario[];
+  ownerId?: string;
+  createdAt?: string;
 }
 
 export interface Phase {

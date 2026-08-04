@@ -6,7 +6,9 @@
   ],
   "exclude": [
     "dist",
-    "supabase"
+    "supabase",
+    "node_modules",
+    "node_modules.root.bak"
   ],
   "compilerOptions": {
     "jsx": "react-jsx",
