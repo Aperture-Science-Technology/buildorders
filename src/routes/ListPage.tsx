@@ -1,13 +1,22 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { listBuildOrders } from '@/lib/api';
-import type { BuildOrder } from '@/lib/types';
+import type { BuildOrder, GameMode } from '@/lib/types';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
-import { PlusIcon, LayersIcon } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { PlusIcon, LayersIcon, StarIcon } from 'lucide-react';
 
 const TYPE_LABELS: Record<BuildOrder['type'], string> = {
   rush: 'Rush',
@@ -18,8 +27,31 @@ const TYPE_LABELS: Record<BuildOrder['type'], string> = {
   other: 'Autre',
 };
 
+const GAME_MODE_OPTIONS: { value: GameMode; label: string }[] = [
+  { value: '1v1', label: '1v1' },
+  { value: '2v2', label: '2v2' },
+  { value: '3v3', label: '3v3' },
+  { value: '4v4', label: '4v4' },
+  { value: 'ffa', label: 'FFA' },
+];
+
+const TYPE_OPTIONS: { value: BuildOrder['type']; label: string }[] = [
+  { value: 'rush', label: 'Rush' },
+  { value: 'boom', label: 'Boom' },
+  { value: 'turtle', label: 'Turtle' },
+  { value: 'fast-castle', label: 'Fast Castle' },
+  { value: 'defensive', label: 'Defensive' },
+  { value: 'other', label: 'Autre' },
+];
+
+const DIFFICULTY_OPTIONS = ['1', '2', '3', '4', '5'];
+
 export function ListPage() {
   const [buildOrders, setBuildOrders] = useState<BuildOrder[] | null>(null);
+  const [search, setSearch] = useState('');
+  const [gameModeFilter, setGameModeFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [difficultyFilter, setDifficultyFilter] = useState('all');
 
   useEffect(() => {
     let cancelled = false;
@@ -38,6 +70,33 @@ export function ListPage() {
       cancelled = true;
     };
   }, []);
+
+  const filteredBuildOrders = useMemo(() => {
+    if (!buildOrders) return [];
+    const query = search.trim().toLowerCase();
+
+    return buildOrders.filter((buildOrder) => {
+      if (query && !buildOrder.civ.toLowerCase().includes(query)) return false;
+      if (gameModeFilter !== 'all' && !buildOrder.gameModes?.includes(gameModeFilter as GameMode)) {
+        return false;
+      }
+      if (typeFilter !== 'all' && buildOrder.type !== typeFilter) return false;
+      if (difficultyFilter !== 'all' && buildOrder.difficulty !== Number(difficultyFilter)) {
+        return false;
+      }
+      return true;
+    });
+  }, [buildOrders, search, gameModeFilter, typeFilter, difficultyFilter]);
+
+  const hasActiveFilters =
+    search.trim() !== '' || gameModeFilter !== 'all' || typeFilter !== 'all' || difficultyFilter !== 'all';
+
+  function resetFilters() {
+    setSearch('');
+    setGameModeFilter('all');
+    setTypeFilter('all');
+    setDifficultyFilter('all');
+  }
 
   if (buildOrders === null) {
     return (
@@ -73,29 +132,135 @@ export function ListPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Build orders</h1>
         <p className="text-muted-foreground">
-          {buildOrders.length} build order{buildOrders.length > 1 ? 's' : ''}
+          {filteredBuildOrders.length} build order{filteredBuildOrders.length > 1 ? 's' : ''}
+          {hasActiveFilters ? ` sur ${buildOrders.length}` : ''}
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {buildOrders.map((buildOrder) => (
-          <Link key={buildOrder.id} to={`/build/${buildOrder.id}`}>
-            <Card className="h-full transition-colors hover:bg-muted/50">
-              <CardHeader>
-                <CardTitle>{buildOrder.civ}</CardTitle>
-                <CardDescription className="capitalize">{buildOrder.sourceType}</CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-wrap gap-2">
-                <Badge>{TYPE_LABELS[buildOrder.type]}</Badge>
-                <Badge variant="outline">
-                  <LayersIcon />
-                  {buildOrder.phases.length} phase{buildOrder.phases.length > 1 ? 's' : ''}
-                </Badge>
-              </CardContent>
-            </Card>
-          </Link>
-        ))}
-      </div>
+      <Card>
+        <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="search">Recherche</Label>
+            <Input
+              id="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Civilisation…"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Type de partie</Label>
+            <Select value={gameModeFilter} onValueChange={(value) => setGameModeFilter(value ?? 'all')}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Toutes" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Toutes</SelectItem>
+                {GAME_MODE_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Type</Label>
+            <Select value={typeFilter} onValueChange={(value) => setTypeFilter(value ?? 'all')}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Tous" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous</SelectItem>
+                {TYPE_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Difficulté</Label>
+            <div className="flex gap-2">
+              <Select
+                value={difficultyFilter}
+                onValueChange={(value) => setDifficultyFilter(value ?? 'all')}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Toutes" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Toutes</SelectItem>
+                  {DIFFICULTY_OPTIONS.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {option}/5
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {hasActiveFilters && (
+                <Button type="button" variant="outline" onClick={resetFilters}>
+                  Réinitialiser
+                </Button>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {filteredBuildOrders.length === 0 ? (
+        <Card className="mx-auto max-w-md text-center">
+          <CardHeader>
+            <CardTitle>Aucun résultat</CardTitle>
+            <CardDescription>Essayez d'ajuster ou de réinitialiser les filtres.</CardDescription>
+          </CardHeader>
+        </Card>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {filteredBuildOrders.map((buildOrder) => (
+            <Link key={buildOrder.id} to={`/build/${buildOrder.id}`}>
+              <Card className="h-full transition-colors hover:bg-muted/50">
+                <CardHeader>
+                  <CardTitle>{buildOrder.civ}</CardTitle>
+                  <CardDescription className="capitalize">{buildOrder.sourceType}</CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-3">
+                  <div className="flex flex-wrap gap-2">
+                    <Badge>{TYPE_LABELS[buildOrder.type]}</Badge>
+                    <Badge variant="outline">
+                      <LayersIcon />
+                      {buildOrder.phases.length} phase{buildOrder.phases.length > 1 ? 's' : ''}
+                    </Badge>
+                    {buildOrder.gameModes?.map((mode) => (
+                      <Badge key={mode} variant="secondary">
+                        {mode.toUpperCase()}
+                      </Badge>
+                    ))}
+                  </div>
+                  {buildOrder.difficulty && (
+                    <div className="flex items-center gap-1 text-muted-foreground">
+                      {Array.from({ length: 5 }).map((_, index) => (
+                        <StarIcon
+                          key={index}
+                          className={
+                            index < buildOrder.difficulty!
+                              ? 'size-3.5 fill-primary text-primary'
+                              : 'size-3.5 text-muted-foreground'
+                          }
+                        />
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

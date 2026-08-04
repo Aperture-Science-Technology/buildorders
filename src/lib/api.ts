@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import type { BuildOrder, Phase, Scenario } from '@/lib/types';
+import type { BuildOrder, GameMode, MatchupNote, Phase, Scenario } from '@/lib/types';
 
 interface BuildOrderRow {
   id: string;
@@ -12,6 +12,11 @@ interface BuildOrderRow {
   scenarios: Scenario[] | null;
   owner_id: string | null;
   created_at: string;
+  game_modes: GameMode[] | null;
+  strengths: string[] | null;
+  weaknesses: string[] | null;
+  matchup_notes: MatchupNote[] | null;
+  difficulty: number | null;
 }
 
 function mapRowToBuildOrder(row: BuildOrderRow): BuildOrder {
@@ -26,6 +31,11 @@ function mapRowToBuildOrder(row: BuildOrderRow): BuildOrder {
     scenarios: row.scenarios ?? undefined,
     ownerId: row.owner_id ?? undefined,
     createdAt: row.created_at,
+    gameModes: row.game_modes ?? undefined,
+    strengths: row.strengths ?? undefined,
+    weaknesses: row.weaknesses ?? undefined,
+    matchupNotes: row.matchup_notes ?? undefined,
+    difficulty: row.difficulty ?? undefined,
   };
 }
 
@@ -61,6 +71,11 @@ export interface BuildOrderInput {
   sourceType: BuildOrder['sourceType'];
   phases: Phase[];
   notes?: string;
+  gameModes?: GameMode[];
+  strengths?: string[];
+  weaknesses?: string[];
+  matchupNotes?: MatchupNote[];
+  difficulty?: number;
 }
 
 function edgeFunctionUrl(): string {
