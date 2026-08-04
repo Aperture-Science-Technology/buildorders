@@ -69,6 +69,30 @@ function edgeFunctionUrl(): string {
   return `${supabaseUrl}/functions/v1/build-orders`;
 }
 
+function parseFunctionUrl(): string {
+  const supabaseUrl = import.meta.env.PUBLIC_SUPABASE_URL;
+  if (!supabaseUrl) throw new Error('Supabase is not configured.');
+  return `${supabaseUrl}/functions/v1/parse-build-order`;
+}
+
+export type ParsedBuildOrder = Omit<BuildOrder, 'id' | 'ownerId' | 'createdAt'>;
+
+export async function parseBuildOrderUrl(url: string): Promise<ParsedBuildOrder> {
+  const response = await fetch(parseFunctionUrl(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url }),
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = (payload as { error?: string } | null)?.error ?? 'Import failed';
+    throw new Error(message);
+  }
+
+  return payload as ParsedBuildOrder;
+}
+
 async function callEdgeFunction(
   method: 'POST' | 'PATCH' | 'DELETE',
   token: string,
