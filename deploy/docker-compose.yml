@@ -1,8 +1,6 @@
 services:
   buildorders:
-    build:
-      context: ..
-      dockerfile: Dockerfile
+    image: ghcr.io/aperture-science-technology/buildorders:latest
     restart: unless-stopped
     networks:
       - infrastructure_infra-network
@@ -13,6 +11,7 @@ services:
       - "traefik.http.routers.buildorders.tls=true"
       - "traefik.http.routers.buildorders.tls.certresolver=cf"
       - "traefik.http.services.buildorders.loadbalancer.server.port=80"
+      - "com.centurylinklabs.watchtower.enable=true"
 
 networks:
   infrastructure_infra-network:
