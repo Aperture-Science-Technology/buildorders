@@ -1,0 +1,13 @@
+node_modules
+dist
+.git
+.claude_prompt
+.claude_fix_pnpm
+.pnpm-store
+.github
+*.md
+.env
+.env.*
+.astro
+.vscode
+.DS_Store
