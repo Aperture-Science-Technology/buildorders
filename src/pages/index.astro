@@ -1,10 +1,6 @@
 ---
 import '@/styles/global.css';
-import { Separator } from '@/components/ui/separator';
-import { Timeline } from '@/components/Timeline';
-import { Cheatsheet } from '@/components/Cheatsheet';
-import { Scenarios } from '@/components/Scenarios';
-import { hreFastCastle } from '@/lib/mock-data';
+import { BuildOrderView } from '@/components/BuildOrderView';
 ---
 
 <html lang="en">
@@ -20,29 +16,10 @@ import { hreFastCastle } from '@/lib/mock-data';
 		<div class="mx-auto max-w-4xl space-y-8 px-4 py-8">
 			<header class="space-y-1">
 				<h1 class="text-3xl font-bold tracking-tight">BuildOrders</h1>
-				<p class="text-muted-foreground">
-					AoE4 build order analyzer — {hreFastCastle.civ} · {hreFastCastle.type}
-				</p>
+				<p class="text-muted-foreground">AoE4 build order analyzer</p>
 			</header>
 
-			<section class="space-y-4">
-				<h2 class="text-xl font-semibold">Timeline</h2>
-				<Timeline client:load buildOrder={hreFastCastle} />
-			</section>
-
-			<Separator />
-
-			<section class="space-y-4">
-				<h2 class="text-xl font-semibold">Cheatsheet</h2>
-				<Cheatsheet client:load buildOrder={hreFastCastle} />
-			</section>
-
-			<Separator />
-
-			<section class="space-y-4">
-				<h2 class="text-xl font-semibold">Scénarios</h2>
-				<Scenarios client:load />
-			</section>
+			<BuildOrderView client:load />
 		</div>
 	</body>
 </html>
