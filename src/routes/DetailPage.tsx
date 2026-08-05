@@ -19,7 +19,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { PencilIcon, Trash2Icon } from 'lucide-react';
+import { PencilIcon, PlayIcon, Trash2Icon } from 'lucide-react';
 
 const TYPE_LABELS: Record<BuildOrder['type'], string> = {
   rush: 'Rush',
@@ -118,18 +118,24 @@ export function DetailPage() {
           </div>
         </div>
 
-        {isOwner && (
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" render={<Link to={`/edit/${buildOrder.id}`} />}>
-              <PencilIcon />
-              Modifier
-            </Button>
-            <Button variant="destructive" size="sm" onClick={() => setConfirmOpen(true)}>
-              <Trash2Icon />
-              Supprimer
-            </Button>
-          </div>
-        )}
+        <div className="flex gap-2">
+          <Button size="sm" render={<Link to={`/play/${buildOrder.id}`} />}>
+            <PlayIcon />
+            Lancer
+          </Button>
+          {isOwner && (
+            <>
+              <Button variant="outline" size="sm" render={<Link to={`/edit/${buildOrder.id}`} />}>
+                <PencilIcon />
+                Modifier
+              </Button>
+              <Button variant="destructive" size="sm" onClick={() => setConfirmOpen(true)}>
+                <Trash2Icon />
+                Supprimer
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       <section className="space-y-4">
