@@ -4,7 +4,9 @@ import { toast } from 'sonner';
 import { useAuth } from '@clerk/clerk-react';
 import { getBuildOrder, deleteBuildOrder } from '@/lib/api';
 import type { BuildOrder, Visibility } from '@/lib/types';
+import { civFlag } from '@/lib/civs';
 import { BuildOrderFlow } from '@/components/BuildOrderFlow';
+import { BuildOrderEditor } from '@/components/BuildOrderEditor';
 import { Scenarios } from '@/components/Scenarios';
 import { BuildShareManager } from '@/components/BuildShareManager';
 import { VisibilityBadge } from '@/components/VisibilityBadge';
@@ -21,7 +23,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { PencilIcon, PlayIcon, Trash2Icon } from 'lucide-react';
+import { PencilIcon, PlayIcon, Trash2Icon, XIcon } from 'lucide-react';
 
 const TYPE_LABELS: Record<BuildOrder['type'], string> = {
   rush: 'Rush',
@@ -39,6 +41,7 @@ export function DetailPage() {
   const [buildOrder, setBuildOrder] = useState<BuildOrder | null | undefined>(undefined);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -108,7 +111,10 @@ export function DetailPage() {
     <div className="space-y-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-2">
-          <h1 className="text-2xl font-semibold tracking-tight">{buildOrder.civ}</h1>
+          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
+            <span aria-hidden="true">{civFlag(buildOrder.civ)}</span>
+            {buildOrder.civ}
+          </h1>
           <div className="flex flex-wrap gap-2">
             <Badge>{TYPE_LABELS[buildOrder.type]}</Badge>
             <VisibilityBadge visibility={buildOrder.visibility ?? 'public'} />
@@ -132,6 +138,14 @@ export function DetailPage() {
                 <PencilIcon />
                 Modifier
               </Button>
+              <Button
+                variant={editing ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setEditing((prev) => !prev)}
+              >
+                {editing ? <XIcon /> : <PencilIcon />}
+                {editing ? "Terminer l'édition" : 'Éditer le grid'}
+              </Button>
               <Button variant="destructive" size="sm" onClick={() => setConfirmOpen(true)}>
                 <Trash2Icon />
                 Supprimer
@@ -145,7 +159,18 @@ export function DetailPage() {
         <h2 className="text-xl font-semibold">Build Order</h2>
         <Card>
           <CardContent className="h-[600px]">
-            <BuildOrderFlow buildOrder={buildOrder} />
+            {isOwner && editing ? (
+              <BuildOrderEditor
+                buildOrder={buildOrder}
+                getToken={getToken}
+                onSaved={(updated) => {
+                  setBuildOrder(updated);
+                  setEditing(false);
+                }}
+              />
+            ) : (
+              <BuildOrderFlow buildOrder={buildOrder} />
+            )}
           </CardContent>
         </Card>
       </section>
