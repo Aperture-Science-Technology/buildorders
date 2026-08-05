@@ -38,6 +38,7 @@ export interface BuildOrder {
 }
 
 export interface Phase {
+  title?: string;
   age: 'dark' | 'feudal' | 'castle' | 'imperial';
   timeStart: number;
   actions: Action[];
@@ -51,9 +52,11 @@ export interface Phase {
 }
 
 export interface Action {
+  id?: string;
   at: number;
   description: string;
   kind?: 'build' | 'research' | 'train' | 'gather' | 'tech' | 'age-up';
+  dependsOn?: string[];
 }
 
 export interface Scenario {
