@@ -8,7 +8,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { MoonIcon, PlusIcon, SunIcon, SwordsIcon, UserIcon, UsersIcon } from 'lucide-react';
+import { LayersIcon, MoonIcon, PlusIcon, SunIcon, SwordsIcon, UserIcon, UsersIcon } from 'lucide-react';
 
 function ThemeToggle() {
   const { setTheme } = useTheme();
@@ -40,6 +40,11 @@ export function Header() {
         </Link>
 
         <div className="flex items-center gap-3">
+          <Button variant="ghost" size="sm" render={<Link to="/builds" />}>
+            <LayersIcon />
+            Builds
+          </Button>
+
           <Button variant="ghost" size="sm" render={<Link to="/guilds" />}>
             <UsersIcon />
             Guildes

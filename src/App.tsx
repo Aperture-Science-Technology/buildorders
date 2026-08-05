@@ -3,6 +3,7 @@ import { ThemeProvider } from 'next-themes';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Header } from '@/components/Header';
 import { Toaster } from '@/components/ui/sonner';
+import { LandingPage } from '@/routes/LandingPage';
 import { ListPage } from '@/routes/ListPage';
 import { DetailPage } from '@/routes/DetailPage';
 import { NewPage } from '@/routes/NewPage';
@@ -32,7 +33,8 @@ export function App() {
             <Header />
             <main className="mx-auto max-w-6xl space-y-8 px-4 py-8">
               <Routes>
-                <Route path="/" element={<ListPage />} />
+                <Route path="/" element={<LandingPage />} />
+                <Route path="/builds" element={<ListPage />} />
                 <Route path="/build/:id" element={<DetailPage />} />
                 <Route path="/new" element={<NewPage />} />
                 <Route path="/edit/:id" element={<EditPage />} />
