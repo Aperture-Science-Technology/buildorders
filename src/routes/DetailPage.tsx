@@ -47,7 +47,8 @@ export function DetailPage() {
     if (!id) return;
     let cancelled = false;
 
-    getBuildOrder(id)
+    getToken()
+      .then((token) => getBuildOrder(id, token ?? undefined))
       .then((data) => {
         if (!cancelled) setBuildOrder(data);
       })
@@ -62,7 +63,7 @@ export function DetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, getToken]);
 
   async function handleDelete() {
     if (!id) return;

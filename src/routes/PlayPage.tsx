@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
+import { useAuth } from '@clerk/clerk-react';
 import { getBuildOrder } from '@/lib/api';
 import type { BuildOrder } from '@/lib/types';
 import { BuildOrderPlayer } from '@/components/BuildOrderPlayer';
@@ -10,13 +11,15 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 export function PlayPage() {
   const { id } = useParams<{ id: string }>();
+  const { getToken } = useAuth();
   const [buildOrder, setBuildOrder] = useState<BuildOrder | null | undefined>(undefined);
 
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
 
-    getBuildOrder(id)
+    getToken()
+      .then((token) => getBuildOrder(id, token ?? undefined))
       .then((data) => {
         if (!cancelled) setBuildOrder(data);
       })
@@ -31,7 +34,7 @@ export function PlayPage() {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, getToken]);
 
   if (buildOrder === undefined) {
     return (

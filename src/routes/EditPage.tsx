@@ -33,7 +33,8 @@ function EditBuildOrderForm() {
     if (!id) return;
     let cancelled = false;
 
-    getBuildOrder(id)
+    getToken()
+      .then((token) => getBuildOrder(id, token ?? undefined))
       .then((data) => {
         if (!cancelled) setBuildOrder(data);
       })
@@ -48,7 +49,7 @@ function EditBuildOrderForm() {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, getToken]);
 
   async function handleSubmit(input: BuildOrderInput) {
     if (!id) return;
