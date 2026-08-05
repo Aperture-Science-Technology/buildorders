@@ -3,9 +3,11 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '@clerk/clerk-react';
 import { getBuildOrder, deleteBuildOrder } from '@/lib/api';
-import type { BuildOrder } from '@/lib/types';
+import type { BuildOrder, Visibility } from '@/lib/types';
 import { BuildOrderFlow } from '@/components/BuildOrderFlow';
 import { Scenarios } from '@/components/Scenarios';
+import { BuildShareManager } from '@/components/BuildShareManager';
+import { VisibilityBadge } from '@/components/VisibilityBadge';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -109,6 +111,7 @@ export function DetailPage() {
           <h1 className="text-2xl font-semibold tracking-tight">{buildOrder.civ}</h1>
           <div className="flex flex-wrap gap-2">
             <Badge>{TYPE_LABELS[buildOrder.type]}</Badge>
+            <VisibilityBadge visibility={buildOrder.visibility ?? 'public'} />
             <Badge
               variant="outline"
               render={<a href={buildOrder.sourceUrl} target="_blank" rel="noreferrer" />}
@@ -164,6 +167,23 @@ export function DetailPage() {
         <h2 className="text-xl font-semibold">Scénarios</h2>
         <Scenarios buildOrder={buildOrder} />
       </section>
+
+      {isOwner && (
+        <>
+          <Separator />
+          <section className="space-y-4">
+            <h2 className="text-xl font-semibold">Partage</h2>
+            <BuildShareManager
+              buildId={buildOrder.id}
+              visibility={buildOrder.visibility ?? 'public'}
+              onVisibilityChange={(nextVisibility: Visibility) =>
+                setBuildOrder((prev) => (prev ? { ...prev, visibility: nextVisibility } : prev))
+              }
+              getToken={getToken}
+            />
+          </section>
+        </>
+      )}
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent>

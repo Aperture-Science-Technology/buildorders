@@ -1,5 +1,15 @@
-import { supabase } from '@/lib/supabase';
-import type { BuildOrder, GameMode, MatchupNote, Phase, Scenario } from '@/lib/types';
+import type {
+  BuildOrder,
+  BuildShare,
+  GameMode,
+  Guild,
+  GuildMember,
+  MatchupNote,
+  Phase,
+  Profile,
+  Scenario,
+  Visibility,
+} from '@/lib/types';
 
 interface BuildOrderRow {
   id: string;
@@ -18,6 +28,7 @@ interface BuildOrderRow {
   matchup_notes: MatchupNote[] | null;
   difficulty: number | null;
   layout: Record<string, { x: number; y: number }> | null;
+  visibility: Visibility | null;
 }
 
 function mapRowToBuildOrder(row: BuildOrderRow): BuildOrder {
@@ -38,32 +49,96 @@ function mapRowToBuildOrder(row: BuildOrderRow): BuildOrder {
     matchupNotes: row.matchup_notes ?? undefined,
     difficulty: row.difficulty ?? undefined,
     layout: row.layout ?? undefined,
+    visibility: row.visibility ?? undefined,
   };
 }
 
-export async function listBuildOrders(): Promise<BuildOrder[]> {
-  if (!supabase) return [];
+export class EdgeFunctionError extends Error {
+  status: number;
 
-  const { data, error } = await supabase
-    .from('build_orders')
-    .select('*')
-    .order('created_at', { ascending: false });
-
-  if (error) throw new Error(error.message);
-  return ((data ?? []) as BuildOrderRow[]).map(mapRowToBuildOrder);
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'EdgeFunctionError';
+    this.status = status;
+  }
 }
 
-export async function getBuildOrder(id: string): Promise<BuildOrder | null> {
-  if (!supabase) return null;
+interface EdgeCallOptions {
+  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  token?: string;
+  body?: unknown;
+  query?: Record<string, string | undefined>;
+}
 
-  const { data, error } = await supabase
-    .from('build_orders')
-    .select('*')
-    .eq('id', id)
-    .maybeSingle();
+async function edgeCall<T>(path: string, options: EdgeCallOptions = {}): Promise<T> {
+  const { method = 'GET', token, body, query } = options;
 
-  if (error) throw new Error(error.message);
-  return data ? mapRowToBuildOrder(data as BuildOrderRow) : null;
+  const supabaseUrl = import.meta.env.PUBLIC_SUPABASE_URL;
+  const apikey = import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  if (!supabaseUrl || !apikey) throw new Error('Supabase is not configured.');
+
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(query ?? {})) {
+    if (value !== undefined) search.set(key, value);
+  }
+  const queryString = search.toString();
+  const url = `${supabaseUrl}/functions/v1/${path}${queryString ? `?${queryString}` : ''}`;
+
+  const headers: Record<string, string> = { apikey };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+
+  const response = await fetch(url, {
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = (payload as { error?: string } | null)?.error ?? 'Request failed';
+    throw new EdgeFunctionError(message, response.status);
+  }
+
+  return payload as T;
+}
+
+export interface ListBuildOrdersOptions {
+  mine?: boolean;
+  public?: boolean;
+  token?: string;
+}
+
+export async function listBuildOrders(
+  options: ListBuildOrdersOptions = {},
+): Promise<BuildOrder[]> {
+  const { mine, public: onlyPublic, token } = options;
+
+  // No args (no token) => public-only, so anonymous visitors keep working.
+  // Token + mine => caller's own builds. Token, no mine/public => mixed list.
+  let query: Record<string, string> | undefined;
+  if (mine) {
+    query = { mine: 'true' };
+  } else if (onlyPublic || !token) {
+    query = { public: 'true' };
+  }
+
+  const rows = await edgeCall<BuildOrderRow[]>('build-orders', { query, token });
+  return rows.map(mapRowToBuildOrder);
+}
+
+export async function getBuildOrder(id: string, token?: string): Promise<BuildOrder | null> {
+  try {
+    const row = await edgeCall<BuildOrderRow>('build-orders', { query: { id }, token });
+    return mapRowToBuildOrder(row);
+  } catch (error) {
+    if (error instanceof EdgeFunctionError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+export function getMyProfile(token: string): Promise<Profile> {
+  return edgeCall<Profile>('build-orders', { query: { profile: 'true' }, token });
 }
 
 export interface BuildOrderInput {
@@ -79,12 +154,7 @@ export interface BuildOrderInput {
   matchupNotes?: MatchupNote[];
   difficulty?: number;
   layout?: Record<string, { x: number; y: number }>;
-}
-
-function edgeFunctionUrl(): string {
-  const supabaseUrl = import.meta.env.PUBLIC_SUPABASE_URL;
-  if (!supabaseUrl) throw new Error('Supabase is not configured.');
-  return `${supabaseUrl}/functions/v1/build-orders`;
+  visibility?: Visibility;
 }
 
 function parseFunctionUrl(): string {
@@ -111,31 +181,10 @@ export async function parseBuildOrderUrl(url: string): Promise<ParsedBuildOrder>
   return payload as ParsedBuildOrder;
 }
 
-async function callEdgeFunction(
-  method: 'POST' | 'PATCH' | 'DELETE',
-  token: string,
-  body: object,
-): Promise<BuildOrder> {
-  const response = await fetch(edgeFunctionUrl(), {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(body),
-  });
-
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    const message = (payload as { error?: string } | null)?.error ?? 'Request failed';
-    throw new Error(message);
-  }
-
-  return mapRowToBuildOrder(payload as BuildOrderRow);
-}
-
 export function createBuildOrder(input: BuildOrderInput, token: string): Promise<BuildOrder> {
-  return callEdgeFunction('POST', token, input);
+  return edgeCall<BuildOrderRow>('build-orders', { method: 'POST', token, body: input }).then(
+    mapRowToBuildOrder,
+  );
 }
 
 export function updateBuildOrder(
@@ -143,9 +192,71 @@ export function updateBuildOrder(
   input: Partial<BuildOrderInput>,
   token: string,
 ): Promise<BuildOrder> {
-  return callEdgeFunction('PATCH', token, { id, ...input });
+  return edgeCall<BuildOrderRow>('build-orders', {
+    method: 'PATCH',
+    token,
+    body: { id, ...input },
+  }).then(mapRowToBuildOrder);
 }
 
 export async function deleteBuildOrder(id: string, token: string): Promise<void> {
-  await callEdgeFunction('DELETE', token, { id });
+  await edgeCall<unknown>('build-orders', { method: 'DELETE', token, body: { id } });
+}
+
+export function listMyGuilds(token: string): Promise<Guild[]> {
+  return edgeCall<Guild[]>('guilds', { query: { mine: 'true' }, token });
+}
+
+export interface CreateGuildInput {
+  name: string;
+  slug: string;
+  description?: string;
+}
+
+export function createGuild(token: string, input: CreateGuildInput): Promise<Guild> {
+  return edgeCall<Guild>('guilds', { method: 'POST', token, body: input });
+}
+
+export async function deleteGuild(token: string, id: string): Promise<void> {
+  await edgeCall<unknown>('guilds', { method: 'DELETE', token, body: { id } });
+}
+
+export interface AddGuildMemberInput {
+  guild_id: string;
+  user_id: string;
+  role?: 'admin' | 'member';
+}
+
+export function addGuildMember(token: string, input: AddGuildMemberInput): Promise<GuildMember> {
+  return edgeCall<GuildMember>('guilds/members', { method: 'POST', token, body: input });
+}
+
+export interface RemoveGuildMemberInput {
+  guild_id: string;
+  user_id: string;
+}
+
+export async function removeGuildMember(
+  token: string,
+  input: RemoveGuildMemberInput,
+): Promise<void> {
+  await edgeCall<unknown>('guilds/members', { method: 'DELETE', token, body: input });
+}
+
+export function listBuildShares(token: string, buildId: string): Promise<BuildShare[]> {
+  return edgeCall<BuildShare[]>('build-shares', { query: { build_id: buildId }, token });
+}
+
+export interface ShareBuildInput {
+  build_id: string;
+  user_id?: string;
+  guild_id?: string;
+}
+
+export function shareBuild(token: string, input: ShareBuildInput): Promise<BuildShare> {
+  return edgeCall<BuildShare>('build-shares', { method: 'POST', token, body: input });
+}
+
+export async function unshareBuild(token: string, input: ShareBuildInput): Promise<void> {
+  await edgeCall<unknown>('build-shares', { method: 'DELETE', token, body: input });
 }

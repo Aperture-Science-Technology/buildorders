@@ -8,6 +8,8 @@ import { DetailPage } from '@/routes/DetailPage';
 import { NewPage } from '@/routes/NewPage';
 import { EditPage } from '@/routes/EditPage';
 import { PlayPage } from '@/routes/PlayPage';
+import { GuildsPage } from '@/routes/GuildsPage';
+import { ProfilePage } from '@/routes/ProfilePage';
 
 const CLERK_PUBLISHABLE_KEY = import.meta.env.PUBLIC_CLERK_PUBLISHABLE_KEY;
 
@@ -35,6 +37,8 @@ export function App() {
                 <Route path="/new" element={<NewPage />} />
                 <Route path="/edit/:id" element={<EditPage />} />
                 <Route path="/play/:id" element={<PlayPage />} />
+                <Route path="/guilds" element={<GuildsPage />} />
+                <Route path="/profile" element={<ProfilePage />} />
               </Routes>
             </main>
           </div>

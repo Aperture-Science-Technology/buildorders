@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
+import { useAuth } from '@clerk/clerk-react';
 import { listBuildOrders } from '@/lib/api';
 import type { BuildOrder, GameMode } from '@/lib/types';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -16,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { VisibilityBadge, VISIBILITY_OPTIONS } from '@/components/VisibilityBadge';
 import { PlusIcon, LayersIcon, StarIcon } from 'lucide-react';
 
 const TYPE_LABELS: Record<BuildOrder['type'], string> = {
@@ -47,29 +49,38 @@ const TYPE_OPTIONS: { value: BuildOrder['type']; label: string }[] = [
 const DIFFICULTY_OPTIONS = ['1', '2', '3', '4', '5'];
 
 export function ListPage() {
+  const { isLoaded, isSignedIn, getToken } = useAuth();
   const [buildOrders, setBuildOrders] = useState<BuildOrder[] | null>(null);
   const [search, setSearch] = useState('');
   const [gameModeFilter, setGameModeFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [difficultyFilter, setDifficultyFilter] = useState('all');
+  const [visibilityFilter, setVisibilityFilter] = useState('all');
 
   useEffect(() => {
+    if (!isLoaded) return;
     let cancelled = false;
 
-    listBuildOrders()
-      .then((data) => {
+    async function load() {
+      try {
+        const token = isSignedIn ? ((await getToken()) ?? undefined) : undefined;
+        const data = await listBuildOrders(token ? { token } : {});
         if (!cancelled) setBuildOrders(data);
-      })
-      .catch((error: Error) => {
+      } catch (error) {
         if (cancelled) return;
-        toast.error('Impossible de charger les build orders', { description: error.message });
+        toast.error('Impossible de charger les build orders', {
+          description: error instanceof Error ? error.message : undefined,
+        });
         setBuildOrders([]);
-      });
+      }
+    }
+
+    load();
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isLoaded, isSignedIn, getToken]);
 
   const filteredBuildOrders = useMemo(() => {
     if (!buildOrders) return [];
@@ -84,18 +95,26 @@ export function ListPage() {
       if (difficultyFilter !== 'all' && buildOrder.difficulty !== Number(difficultyFilter)) {
         return false;
       }
+      if (visibilityFilter !== 'all' && (buildOrder.visibility ?? 'public') !== visibilityFilter) {
+        return false;
+      }
       return true;
     });
-  }, [buildOrders, search, gameModeFilter, typeFilter, difficultyFilter]);
+  }, [buildOrders, search, gameModeFilter, typeFilter, difficultyFilter, visibilityFilter]);
 
   const hasActiveFilters =
-    search.trim() !== '' || gameModeFilter !== 'all' || typeFilter !== 'all' || difficultyFilter !== 'all';
+    search.trim() !== '' ||
+    gameModeFilter !== 'all' ||
+    typeFilter !== 'all' ||
+    difficultyFilter !== 'all' ||
+    visibilityFilter !== 'all';
 
   function resetFilters() {
     setSearch('');
     setGameModeFilter('all');
     setTypeFilter('all');
     setDifficultyFilter('all');
+    setVisibilityFilter('all');
   }
 
   if (buildOrders === null) {
@@ -138,7 +157,7 @@ export function ListPage() {
       </div>
 
       <Card>
-        <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
           <div className="space-y-1.5">
             <Label htmlFor="search">Recherche</Label>
             <Input
@@ -185,19 +204,40 @@ export function ListPage() {
 
           <div className="space-y-1.5">
             <Label>Difficulté</Label>
+            <Select
+              value={difficultyFilter}
+              onValueChange={(value) => setDifficultyFilter(value ?? 'all')}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Toutes" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Toutes</SelectItem>
+                {DIFFICULTY_OPTIONS.map((option) => (
+                  <SelectItem key={option} value={option}>
+                    {option}/5
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Visibilité</Label>
             <div className="flex gap-2">
               <Select
-                value={difficultyFilter}
-                onValueChange={(value) => setDifficultyFilter(value ?? 'all')}
+                value={visibilityFilter}
+                onValueChange={(value) => setVisibilityFilter(value ?? 'all')}
               >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Toutes" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Toutes</SelectItem>
-                  {DIFFICULTY_OPTIONS.map((option) => (
-                    <SelectItem key={option} value={option}>
-                      {option}/5
+                  {VISIBILITY_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      <option.icon />
+                      {option.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -231,6 +271,7 @@ export function ListPage() {
                 <CardContent className="flex flex-col gap-3">
                   <div className="flex flex-wrap gap-2">
                     <Badge>{TYPE_LABELS[buildOrder.type]}</Badge>
+                    <VisibilityBadge visibility={buildOrder.visibility ?? 'public'} />
                     <Badge variant="outline">
                       <LayersIcon />
                       {buildOrder.phases.length} phase{buildOrder.phases.length > 1 ? 's' : ''}

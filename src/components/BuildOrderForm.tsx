@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react';
 import { toast } from 'sonner';
-import type { BuildOrder, Action, GameMode, MatchupNote, Phase } from '@/lib/types';
+import type { BuildOrder, Action, GameMode, MatchupNote, Phase, Visibility } from '@/lib/types';
 import { parseBuildOrderUrl, type BuildOrderInput } from '@/lib/api';
+import { VISIBILITY_OPTIONS } from '@/components/VisibilityBadge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -119,6 +120,7 @@ export function BuildOrderForm({
   const [sourceType, setSourceType] = useState<BuildOrder['sourceType']>(
     initial?.sourceType ?? 'manual',
   );
+  const [visibility, setVisibility] = useState<Visibility>(initial?.visibility ?? 'public');
   const [notes, setNotes] = useState(initial?.notes ?? '');
   const [phases, setPhases] = useState<PhaseDraft[]>(
     initial?.phases.length ? initial.phases.map(phaseToDraft) : [emptyPhase()],
@@ -272,6 +274,7 @@ export function BuildOrderForm({
       weaknesses: cleanedWeaknesses.length ? cleanedWeaknesses : undefined,
       matchupNotes: cleanedMatchupNotes.length ? cleanedMatchupNotes : undefined,
       difficulty: difficulty === 'none' ? undefined : Number(difficulty),
+      visibility,
       phases: phases.map((phase) => ({
         age: phase.age,
         timeStart: Number(phase.timeStart) || 0,
@@ -365,6 +368,26 @@ export function BuildOrderForm({
               <SelectContent>
                 {SOURCE_TYPE_OPTIONS.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="visibility">Visibilité</Label>
+            <Select
+              value={visibility}
+              onValueChange={(value) => setVisibility((value as Visibility) ?? 'public')}
+            >
+              <SelectTrigger id="visibility" className="w-full">
+                <SelectValue placeholder="Visibilité" />
+              </SelectTrigger>
+              <SelectContent>
+                {VISIBILITY_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    <option.icon />
                     {option.label}
                   </SelectItem>
                 ))}

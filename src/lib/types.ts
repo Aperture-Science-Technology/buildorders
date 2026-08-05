@@ -1,5 +1,7 @@
 export type GameMode = '1v1' | '2v2' | '3v3' | '4v4' | 'ffa';
 
+export type Visibility = 'public' | 'private' | 'shared';
+
 export interface MatchupNote {
   civ: string;
   note: string;
@@ -22,6 +24,7 @@ export interface BuildOrder {
   matchupNotes?: MatchupNote[];
   difficulty?: number;
   layout?: Record<string, { x: number; y: number }>;
+  visibility?: Visibility;
 }
 
 export interface Phase {
@@ -48,4 +51,36 @@ export interface Scenario {
   label: string;
   branchAt: number;
   variant: Partial<BuildOrder>;
+}
+
+export interface GuildMember {
+  user_id: string;
+  display_name: string;
+  role: string;
+}
+
+export interface Guild {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  owner_id: string;
+  role: string;
+  members: GuildMember[];
+  created_at: string;
+}
+
+export interface BuildShare {
+  build_id: string;
+  user_id: string | null;
+  guild_id: string | null;
+  guild_name?: string | null;
+  created_at: string;
+}
+
+export interface Profile {
+  id: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  preferences: Record<string, unknown> | null;
 }
