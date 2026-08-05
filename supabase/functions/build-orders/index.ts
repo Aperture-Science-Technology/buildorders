@@ -51,6 +51,8 @@ interface ProfilePatchPayload {
 
 interface BuildOrderPayload {
   id?: unknown;
+  like?: unknown;
+  build_id?: unknown;
   civ?: unknown;
   type?: unknown;
   sourceUrl?: unknown;
@@ -316,6 +318,107 @@ function parseLimit(params: URLSearchParams): number {
   return Math.min(Math.floor(raw), MAX_LIST_LIMIT);
 }
 
+type SortOption = 'recent' | 'views' | 'likes';
+
+function parseSort(params: URLSearchParams): SortOption {
+  const raw = params.get('sort');
+  return raw === 'views' || raw === 'likes' ? raw : 'recent';
+}
+
+function sortColumn(sort: SortOption): string {
+  if (sort === 'views') return 'view_count';
+  if (sort === 'likes') return 'like_count';
+  return 'created_at';
+}
+
+// Used to re-sort the merged mixed list (public + mine + shared), since each
+// sub-query is already ordered but the merge itself needs re-sorting.
+function sortRows(rows: Record<string, unknown>[], sort: SortOption): Record<string, unknown>[] {
+  if (sort === 'views') {
+    return rows.sort((a, b) => (Number(b.view_count) || 0) - (Number(a.view_count) || 0));
+  }
+  if (sort === 'likes') {
+    return rows.sort((a, b) => (Number(b.like_count) || 0) - (Number(a.like_count) || 0));
+  }
+  return rows.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+}
+
+async function handleLikeBuild(userId: string, payload: { build_id?: unknown }): Promise<Response> {
+  const buildId = payload.build_id;
+  if (typeof buildId !== 'string' || buildId.length === 0) {
+    return json({ error: 'Missing "build_id" field' }, 400);
+  }
+
+  const { data: build, error: fetchError } = await supabaseAdmin
+    .from('build_orders')
+    .select('*')
+    .eq('id', buildId)
+    .maybeSingle();
+  if (fetchError) return json({ error: fetchError.message }, 500);
+  if (!build || !(await canReadBuild(build, userId))) {
+    return json({ error: 'Not found' }, 404);
+  }
+
+  const { error: insertError } = await supabaseAdmin
+    .from('build_likes')
+    .insert({ build_id: buildId, user_id: userId });
+
+  if (insertError) {
+    // Unique violation: already liked, idempotent success without a re-increment.
+    if (insertError.code === '23505') {
+      return json({ liked: true, like_count: Number(build.like_count) || 0 }, 200);
+    }
+    return json({ error: insertError.message }, 500);
+  }
+
+  const newCount = (Number(build.like_count) || 0) + 1;
+  const { error: updateError } = await supabaseAdmin
+    .from('build_orders')
+    .update({ like_count: newCount })
+    .eq('id', buildId);
+  if (updateError) return json({ error: updateError.message }, 500);
+
+  return json({ liked: true, like_count: newCount }, 200);
+}
+
+async function handleUnlikeBuild(userId: string, buildId: string): Promise<Response> {
+  const { data: existingLike, error: likeFetchError } = await supabaseAdmin
+    .from('build_likes')
+    .select('build_id')
+    .eq('build_id', buildId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (likeFetchError) return json({ error: likeFetchError.message }, 500);
+
+  const { data: build, error: buildFetchError } = await supabaseAdmin
+    .from('build_orders')
+    .select('like_count')
+    .eq('id', buildId)
+    .maybeSingle();
+  if (buildFetchError) return json({ error: buildFetchError.message }, 500);
+  if (!build) return json({ error: 'Not found' }, 404);
+
+  if (!existingLike) {
+    return json({ liked: false, like_count: Number(build.like_count) || 0 }, 200);
+  }
+
+  const { error: deleteError } = await supabaseAdmin
+    .from('build_likes')
+    .delete()
+    .eq('build_id', buildId)
+    .eq('user_id', userId);
+  if (deleteError) return json({ error: deleteError.message }, 500);
+
+  const newCount = Math.max(0, (Number(build.like_count) || 0) - 1);
+  const { error: updateError } = await supabaseAdmin
+    .from('build_orders')
+    .update({ like_count: newCount })
+    .eq('id', buildId);
+  if (updateError) return json({ error: updateError.message }, 500);
+
+  return json({ liked: false, like_count: newCount }, 200);
+}
+
 async function handleGet(req: Request, userId: string | null): Promise<Response> {
   const { searchParams } = new URL(req.url);
 
@@ -339,11 +442,33 @@ async function handleGet(req: Request, userId: string | null): Promise<Response>
       if (!data || !(await canReadBuild(data, userId))) {
         return json({ error: 'Not found' }, 404);
       }
+
+      try {
+        await supabaseAdmin
+          .from('build_orders')
+          .update({ view_count: (Number(data.view_count) || 0) + 1 })
+          .eq('id', id);
+      } catch (err) {
+        console.error('view_count increment failed:', err instanceof Error ? err.message : String(err));
+      }
+
+      let liked = false;
+      if (userId) {
+        const { data: likeRow } = await supabaseAdmin
+          .from('build_likes')
+          .select('build_id')
+          .eq('build_id', id)
+          .eq('user_id', userId)
+          .maybeSingle();
+        liked = !!likeRow;
+      }
+
       const [withOwner] = await attachOwners([data]);
-      return json(withOwner, 200);
+      return json({ ...withOwner, liked }, 200);
     }
 
     const limit = parseLimit(searchParams);
+    const sort = parseSort(searchParams);
     const mineOnly = searchParams.get('mine') === 'true';
     const publicOnly = searchParams.get('public') === 'true';
 
@@ -353,7 +478,7 @@ async function handleGet(req: Request, userId: string | null): Promise<Response>
         .from('build_orders')
         .select('*')
         .eq('owner_id', userId)
-        .order('created_at', { ascending: false })
+        .order(sortColumn(sort), { ascending: false })
         .limit(limit);
       if (error) return json({ error: error.message }, 500);
       return json(await attachOwners(data ?? []), 200);
@@ -364,7 +489,7 @@ async function handleGet(req: Request, userId: string | null): Promise<Response>
         .from('build_orders')
         .select('*')
         .eq('visibility', 'public')
-        .order('created_at', { ascending: false })
+        .order(sortColumn(sort), { ascending: false })
         .limit(limit);
       if (error) return json({ error: error.message }, 500);
       return json(await attachOwners(data ?? []), 200);
@@ -376,7 +501,7 @@ async function handleGet(req: Request, userId: string | null): Promise<Response>
         .from('build_orders')
         .select('*')
         .eq('visibility', 'public')
-        .order('created_at', { ascending: false })
+        .order(sortColumn(sort), { ascending: false })
         .limit(limit);
       if (error) return json({ error: error.message }, 500);
       return json(await attachOwners(data ?? []), 200);
@@ -390,13 +515,13 @@ async function handleGet(req: Request, userId: string | null): Promise<Response>
         .from('build_orders')
         .select('*')
         .eq('visibility', 'public')
-        .order('created_at', { ascending: false })
+        .order(sortColumn(sort), { ascending: false })
         .limit(limit),
       supabaseAdmin
         .from('build_orders')
         .select('*')
         .eq('owner_id', userId)
-        .order('created_at', { ascending: false })
+        .order(sortColumn(sort), { ascending: false })
         .limit(limit),
     ];
     if (sharedIds.length > 0) {
@@ -405,7 +530,7 @@ async function handleGet(req: Request, userId: string | null): Promise<Response>
           .from('build_orders')
           .select('*')
           .in('id', sharedIds)
-          .order('created_at', { ascending: false })
+          .order(sortColumn(sort), { ascending: false })
           .limit(limit),
       );
     }
@@ -422,9 +547,7 @@ async function handleGet(req: Request, userId: string | null): Promise<Response>
       }
     }
 
-    const merged = Array.from(byId.values())
-      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
-      .slice(0, limit);
+    const merged = sortRows(Array.from(byId.values()), sort).slice(0, limit);
 
     return json(await attachOwners(merged), 200);
   } catch (err) {
@@ -468,6 +591,10 @@ Deno.serve(async (req: Request) => {
   }
 
   if (req.method === 'POST') {
+    if (body.like && typeof body.like === 'object') {
+      return handleLikeBuild(userId, body.like as { build_id?: unknown });
+    }
+
     const row = toRow(body);
     if ('error' in row) return json({ error: row.error }, 400);
     if (!row.civ || !row.type || !row.source_url || !row.source_type || !row.phases) {
@@ -485,6 +612,11 @@ Deno.serve(async (req: Request) => {
     if (error) return json({ error: error.message }, 500);
     const [withOwner] = await attachOwners([data]);
     return json(withOwner, 201);
+  }
+
+  // Unlike uses body.build_id (distinct from the build DELETE below, which uses body.id).
+  if (req.method === 'DELETE' && body.id === undefined && typeof body.build_id === 'string') {
+    return handleUnlikeBuild(userId, body.build_id);
   }
 
   // PATCH and DELETE both require an existing row owned by the caller.

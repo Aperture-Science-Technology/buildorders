@@ -32,6 +32,9 @@ export interface BuildOrder {
   difficulty?: number;
   layout?: Record<string, { x: number; y: number }>;
   visibility?: Visibility;
+  viewCount?: number;
+  likeCount?: number;
+  liked?: boolean;
 }
 
 export interface Phase {
