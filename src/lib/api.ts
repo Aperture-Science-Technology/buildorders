@@ -8,6 +8,7 @@ import type {
   MatchupNote,
   Phase,
   Profile,
+  PublicUserProfile,
   Scenario,
   Visibility,
 } from '@/lib/types';
@@ -151,6 +152,35 @@ export async function getBuildOrder(id: string, token?: string): Promise<BuildOr
   }
 }
 
+export function listMyBuilds(token: string): Promise<BuildOrder[]> {
+  return edgeCall<BuildOrderRow[]>('build-orders', { query: { mine: 'true' }, token }).then((rows) =>
+    rows.map(mapRowToBuildOrder),
+  );
+}
+
+export function getUserBuilds(userId: string, token?: string | null): Promise<BuildOrder[]> {
+  return edgeCall<BuildOrderRow[]>('build-orders', {
+    query: { user: userId },
+    token: token ?? undefined,
+  }).then((rows) => rows.map(mapRowToBuildOrder));
+}
+
+interface UserProfileResponse {
+  profile: { id: string; display_name: string | null; avatar_url: string | null };
+  guilds: { id: string; name: string; slug: string; role: string }[];
+}
+
+export async function getUserProfile(
+  userId: string,
+  token?: string | null,
+): Promise<PublicUserProfile> {
+  const { profile, guilds } = await edgeCall<UserProfileResponse>('build-orders', {
+    query: { user_profile: userId },
+    token: token ?? undefined,
+  });
+  return { ...profile, guilds };
+}
+
 export function getMyProfile(token: string): Promise<Profile> {
   return edgeCall<Profile>('build-orders', { query: { profile: 'true' }, token });
 }
@@ -256,6 +286,22 @@ export function listMyGuilds(token: string): Promise<Guild[]> {
   return edgeCall<Guild[]>('guilds', { query: { mine: 'true' }, token });
 }
 
+export function listAllGuilds(token?: string | null): Promise<Guild[]> {
+  return edgeCall<Guild[]>('guilds', { query: {}, token: token ?? undefined });
+}
+
+export function getGuild(token: string | null, id: string): Promise<Guild> {
+  return edgeCall<Guild>('guilds', { query: { id }, token: token ?? undefined });
+}
+
+export function joinGuild(token: string, guildId: string): Promise<Guild> {
+  return edgeCall<Guild>('guilds/join', { method: 'POST', token, body: { guild_id: guildId } });
+}
+
+export async function leaveGuild(token: string, guildId: string): Promise<void> {
+  await edgeCall<unknown>('guilds/leave', { method: 'POST', token, body: { guild_id: guildId } });
+}
+
 export interface CreateGuildInput {
   name: string;
   slug: string;
@@ -264,6 +310,16 @@ export interface CreateGuildInput {
 
 export function createGuild(token: string, input: CreateGuildInput): Promise<Guild> {
   return edgeCall<Guild>('guilds', { method: 'POST', token, body: input });
+}
+
+export interface UpdateGuildInput {
+  name?: string;
+  slug?: string;
+  description?: string;
+}
+
+export function updateGuild(token: string, id: string, input: UpdateGuildInput): Promise<Guild> {
+  return edgeCall<Guild>('guilds', { method: 'PATCH', token, body: { id, ...input } });
 }
 
 export async function deleteGuild(token: string, id: string): Promise<void> {

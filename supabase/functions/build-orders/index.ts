@@ -435,6 +435,62 @@ async function handleGet(req: Request, userId: string | null): Promise<Response>
       return json(data, 200);
     }
 
+    const userProfileParam = searchParams.get('user_profile');
+    if (userProfileParam) {
+      const { data: profileRow, error: profileError } = await supabaseAdmin
+        .from('profiles')
+        .select('id, display_name, avatar_url')
+        .eq('id', userProfileParam)
+        .maybeSingle();
+      if (profileError) {
+        console.error('Profile lookup failed:', profileError.message);
+      }
+      const profile = profileRow ?? { id: userProfileParam, display_name: null, avatar_url: null };
+
+      const { data: memberships, error: membershipsError } = await supabaseAdmin
+        .from('guild_members')
+        .select('guild_id, role')
+        .eq('user_id', userProfileParam);
+      if (membershipsError) return json({ error: membershipsError.message }, 500);
+
+      const guildIds = (memberships ?? []).map((m) => m.guild_id as string);
+      let guilds: { id: string; name: string; slug: string; role: string }[] = [];
+      if (guildIds.length > 0) {
+        const { data: guildRows, error: guildsError } = await supabaseAdmin
+          .from('guilds')
+          .select('id, name, slug')
+          .in('id', guildIds);
+        if (guildsError) return json({ error: guildsError.message }, 500);
+
+        const roleByGuild = new Map<string, string>();
+        for (const m of memberships ?? []) roleByGuild.set(m.guild_id as string, m.role as string);
+        guilds = (guildRows ?? []).map((g) => ({
+          id: g.id as string,
+          name: g.name as string,
+          slug: g.slug as string,
+          role: roleByGuild.get(g.id as string) ?? '',
+        }));
+      }
+
+      return json({ profile, guilds }, 200);
+    }
+
+    const userParam = searchParams.get('user');
+    if (userParam) {
+      const includePrivate = userId !== null && userId === userParam;
+      let query = supabaseAdmin
+        .from('build_orders')
+        .select('*')
+        .eq('owner_id', userParam)
+        .order('created_at', { ascending: false });
+      if (!includePrivate) {
+        query = query.eq('visibility', 'public');
+      }
+      const { data, error } = await query;
+      if (error) return json({ error: error.message }, 500);
+      return json(await attachOwners(data ?? []), 200);
+    }
+
     const id = searchParams.get('id');
     if (id) {
       const { data, error } = await supabaseAdmin.from('build_orders').select('*').eq('id', id).maybeSingle();
