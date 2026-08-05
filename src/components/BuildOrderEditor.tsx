@@ -21,7 +21,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { toast } from 'sonner';
-import type { Action, BuildOrder, Phase } from '@/lib/types';
+import type { Action, ActionBranch, BuildOrder, Phase } from '@/lib/types';
 import { updateBuildOrder } from '@/lib/api';
 import { AGE_LABELS, formatTime } from '@/lib/format';
 import { GAME_ICONS } from '@/lib/gameIcons';
@@ -58,6 +58,8 @@ import {
   ArrowDownUpIcon,
   PencilIcon,
   Rows3Icon,
+  SplitIcon,
+  GitBranchIcon,
 } from 'lucide-react';
 
 const AGE_OPTIONS: { value: Phase['age']; label: string }[] = [
@@ -126,6 +128,18 @@ function findDependencyCycle(items: { id: string; dependsOn: string[] }[]): stri
   return cycle;
 }
 
+/** Flattens actions and, recursively, every branch's actions — used for save-time validation. */
+function flattenActionsDeep(actions: Action[]): Action[] {
+  const result: Action[] = [];
+  for (const action of actions) {
+    result.push(action);
+    for (const branch of action.branches ?? []) {
+      result.push(...flattenActionsDeep(branch.actions));
+    }
+  }
+  return result;
+}
+
 const ACTION_KIND_OPTIONS: { value: NonNullable<Action['kind']>; label: string }[] = [
   { value: 'build', label: 'Build' },
   { value: 'research', label: 'Research' },
@@ -139,12 +153,36 @@ const COLUMN_WIDTH = 360;
 const ROW_HEIGHT = 180;
 const ROW_Y_OFFSET = 100;
 const CURSOR_NODE_ID = '__cursor__';
+/** Edge color for decision -> branch links (matches the amber decision border/badge). */
+const BRANCH_EDGE_COLOR = '#f59e0b';
 
 const ACTION_CONTEXT_ITEMS: ContextMenuItem[] = [
   { id: 'edit', label: 'Modifier', icon: PencilIcon },
   { id: 'add-after', label: 'Ajouter après', icon: PlusIcon },
   { id: 'link-from', label: 'Lier vers…', icon: Link2Icon },
+  { id: 'make-decision', label: 'Faire une décision', icon: SplitIcon },
   { id: 'delete', label: 'Supprimer', icon: Trash2Icon, danger: true },
+];
+
+const BRANCH_ACTION_CONTEXT_ITEMS: ContextMenuItem[] = [
+  { id: 'edit', label: 'Modifier', icon: PencilIcon },
+  { id: 'add-after', label: 'Ajouter après', icon: PlusIcon },
+  { id: 'link-from', label: 'Lier vers…', icon: Link2Icon },
+  { id: 'delete', label: 'Supprimer', icon: Trash2Icon, danger: true },
+];
+
+const DECISION_ACTION_CONTEXT_ITEMS: ContextMenuItem[] = [
+  { id: 'edit-decision', label: 'Éditer la décision', icon: SplitIcon },
+  { id: 'add-branch', label: 'Ajouter une branche', icon: GitBranchIcon },
+  { id: 'add-after', label: 'Ajouter après', icon: PlusIcon },
+  { id: 'link-from', label: 'Lier vers…', icon: Link2Icon },
+  { id: 'delete', label: 'Supprimer', icon: Trash2Icon, danger: true },
+];
+
+const BRANCH_HEADER_CONTEXT_ITEMS: ContextMenuItem[] = [
+  { id: 'edit-branch', label: 'Modifier la condition', icon: PencilIcon },
+  { id: 'add-branch-action', label: 'Ajouter une action', icon: PlusIcon },
+  { id: 'delete-branch', label: 'Supprimer la branche', icon: Trash2Icon, danger: true },
 ];
 
 const PHASE_CONTEXT_ITEMS: ContextMenuItem[] = [
@@ -165,8 +203,13 @@ interface ActionNodeData extends Record<string, unknown> {
   at: number;
   kind?: Action['kind'];
   iconId?: string;
+  condition?: string;
+  isDecision?: boolean;
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
+  /** Internal bookkeeping (not exported): set when this action node lives inside a decision's branch. */
+  branchOwnerId?: string;
+  branchIndex?: number;
 }
 
 interface PhaseHeaderNodeData extends Record<string, unknown> {
@@ -179,6 +222,16 @@ interface PhaseHeaderNodeData extends Record<string, unknown> {
   onEditHeader: (phaseIndex: number) => void;
 }
 
+interface BranchHeaderNodeData extends Record<string, unknown> {
+  condition: string;
+  branchId?: string;
+  decisionId: string;
+  branchIndex: number;
+  onEditBranch: (decisionId: string, branchIndex: number) => void;
+  onDeleteBranch: (decisionId: string, branchIndex: number) => void;
+  onAddBranchAction: (decisionId: string, branchIndex: number) => void;
+}
+
 type CursorNodeData = Record<string, unknown>;
 
 interface NodeHandlers {
@@ -186,12 +239,16 @@ interface NodeHandlers {
   onEditAction: (id: string) => void;
   onDeleteAction: (id: string) => void;
   onEditHeader: (phaseIndex: number) => void;
+  onEditBranch: (decisionId: string, branchIndex: number) => void;
+  onDeleteBranch: (decisionId: string, branchIndex: number) => void;
+  onAddBranchAction: (decisionId: string, branchIndex: number) => void;
 }
 
 /** Menu context: what was right-clicked, so item selection can be dispatched. */
 type MenuContext =
   | { type: 'action'; id: string }
   | { type: 'phaseHeader'; phaseIndex: number }
+  | { type: 'branchHeader'; decisionId: string; branchIndex: number }
   | { type: 'pane'; flowX: number };
 
 interface MenuState {
@@ -204,13 +261,30 @@ interface MenuState {
 function ActionNode({ id, data }: NodeProps<Node<ActionNodeData, 'action'>>) {
   return (
     <div
-      className="group relative w-[300px] rounded-lg border bg-card text-card-foreground shadow-sm"
+      className={cn(
+        'group relative w-[300px] rounded-lg border bg-card text-card-foreground shadow-sm',
+        data.isDecision && 'border-2 border-amber-400/60',
+      )}
       onDoubleClick={() => data.onEdit(id)}
     >
       <Handle type="target" position={Position.Top} className="!bg-muted-foreground" />
       <div className="flex items-start gap-3 p-3">
         <div className="flex flex-1 flex-col gap-1">
-          <span className="font-mono text-xs text-muted-foreground">{formatTime(data.at)}</span>
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-xs text-muted-foreground">{formatTime(data.at)}</span>
+            {data.isDecision && (
+              <Badge variant="outline" className="gap-1 text-[10px]">
+                <SplitIcon className="size-3" />
+                Décision
+              </Badge>
+            )}
+          </div>
+          {data.condition && (
+            <Badge variant="outline" className="w-fit gap-1 text-[10px]">
+              <GitBranchIcon className="size-3" />
+              {data.condition}
+            </Badge>
+          )}
           <span className="text-sm font-medium leading-snug">
             <ActionDescription
               action={{
@@ -264,6 +338,49 @@ function PhaseHeaderNode({ data }: NodeProps<Node<PhaseHeaderNodeData, 'phaseHea
   );
 }
 
+function BranchHeaderNode({ data }: NodeProps<Node<BranchHeaderNodeData, 'branchHeader'>>) {
+  return (
+    <div className="group flex w-[280px] items-center justify-between gap-2">
+      <Badge variant="outline" className="gap-1 border-amber-400/60 text-[10px]">
+        <GitBranchIcon className="size-3" />
+        {data.condition}
+      </Badge>
+      <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          className="nodrag"
+          title="Modifier la condition"
+          onClick={() => data.onEditBranch(data.decisionId, data.branchIndex)}
+        >
+          <PencilIcon />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          className="nodrag"
+          title="Ajouter une action"
+          onClick={() => data.onAddBranchAction(data.decisionId, data.branchIndex)}
+        >
+          <PlusIcon />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          className="nodrag text-destructive"
+          title="Supprimer la branche"
+          onClick={() => data.onDeleteBranch(data.decisionId, data.branchIndex)}
+        >
+          <Trash2Icon />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function CursorNode() {
   return <div className="size-px opacity-0" />;
 }
@@ -271,6 +388,7 @@ function CursorNode() {
 const nodeTypes: NodeTypes = {
   action: ActionNode,
   phaseHeader: PhaseHeaderNode,
+  branchHeader: BranchHeaderNode,
   cursor: CursorNode,
 };
 
@@ -281,6 +399,95 @@ function buildEditorElements(
 ): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
+  const allActionRefs: { action: Action; id: string }[] = [];
+
+  function pushActionNode(
+    action: Action,
+    defaultPosition: { x: number; y: number },
+    extra?: { branchOwnerId: string; branchIndex: number },
+  ): { id: string; position: { x: number; y: number } } {
+    const id = action.id ?? generateActionId();
+    const position = layout?.[id] ?? defaultPosition;
+    nodes.push({
+      id,
+      type: 'action',
+      position,
+      data: {
+        description: action.description,
+        at: action.at,
+        kind: action.kind,
+        iconId: action.iconId,
+        condition: action.condition,
+        isDecision: Boolean(action.branches?.length),
+        onEdit: handlers.onEditAction,
+        onDelete: handlers.onDeleteAction,
+        ...(extra ?? {}),
+      },
+      draggable: true,
+    });
+    allActionRefs.push({ action, id });
+    return { id, position };
+  }
+
+  function buildBranches(
+    decisionId: string,
+    decisionPosition: { x: number; y: number },
+    branches: ActionBranch[],
+  ) {
+    branches.forEach((branch, branchIndex) => {
+      const columnX = decisionPosition.x + COLUMN_WIDTH * (branchIndex + 1);
+      const headerId = `${decisionId}-branch-${branchIndex}-header`;
+
+      nodes.push({
+        id: headerId,
+        type: 'branchHeader',
+        position: { x: columnX, y: decisionPosition.y },
+        data: {
+          condition: branch.condition,
+          branchId: branch.id,
+          decisionId,
+          branchIndex,
+          onEditBranch: handlers.onEditBranch,
+          onDeleteBranch: handlers.onDeleteBranch,
+          onAddBranchAction: handlers.onAddBranchAction,
+        },
+        draggable: false,
+        selectable: false,
+      });
+
+      edges.push({
+        id: `${decisionId}->${headerId}`,
+        source: decisionId,
+        target: headerId,
+        type: 'smoothstep',
+        animated: true,
+        style: { stroke: BRANCH_EDGE_COLOR },
+        data: { auto: true },
+      });
+
+      let previousBranchActionId: string | null = null;
+      branch.actions.forEach((branchAction, branchActionIndex) => {
+        const { id: branchActionId } = pushActionNode(
+          branchAction,
+          { x: columnX, y: decisionPosition.y + ROW_HEIGHT * (branchActionIndex + 1) },
+          { branchOwnerId: decisionId, branchIndex },
+        );
+
+        if (!branchAction.dependsOn?.length) {
+          const source = previousBranchActionId ?? headerId;
+          edges.push({
+            id: `${source}->${branchActionId}`,
+            source,
+            target: branchActionId,
+            type: 'smoothstep',
+            animated: false,
+            data: { auto: true },
+          });
+        }
+        previousBranchActionId = branchActionId;
+      });
+    });
+  }
 
   phases.forEach((phase, phaseIndex) => {
     const x = phaseIndex * COLUMN_WIDTH;
@@ -304,22 +511,8 @@ function buildEditorElements(
 
     let previousActionId: string | null = null;
     phase.actions.forEach((action, actionIndex) => {
-      const id = action.id ?? generateActionId();
       const defaultPosition = { x, y: actionIndex * ROW_HEIGHT + ROW_Y_OFFSET };
-      nodes.push({
-        id,
-        type: 'action',
-        position: layout?.[id] ?? defaultPosition,
-        data: {
-          description: action.description,
-          at: action.at,
-          kind: action.kind,
-          iconId: action.iconId,
-          onEdit: handlers.onEditAction,
-          onDelete: handlers.onDeleteAction,
-        },
-        draggable: true,
-      });
+      const { id, position } = pushActionNode(action, defaultPosition);
 
       if (!action.dependsOn?.length && previousActionId) {
         edges.push({
@@ -331,28 +524,29 @@ function buildEditorElements(
           data: { auto: true },
         });
       }
+
+      if (action.branches?.length) {
+        buildBranches(id, position, action.branches);
+      }
+
       previousActionId = id;
     });
   });
 
-  const actionIds = new Set(nodes.filter((node) => node.type === 'action').map((node) => node.id));
-  phases.forEach((phase) => {
-    phase.actions.forEach((action) => {
-      const targetId = action.id;
-      if (!targetId || !actionIds.has(targetId)) return;
-      for (const sourceId of action.dependsOn ?? []) {
-        if (!actionIds.has(sourceId)) continue;
-        edges.push({
-          id: `${sourceId}->${targetId}`,
-          source: sourceId,
-          target: targetId,
-          type: 'smoothstep',
-          animated: false,
-          markerEnd: { type: MarkerType.ArrowClosed },
-        });
-      }
-    });
-  });
+  const actionIds = new Set(allActionRefs.map((ref) => ref.id));
+  for (const { action, id } of allActionRefs) {
+    for (const sourceId of action.dependsOn ?? []) {
+      if (!actionIds.has(sourceId)) continue;
+      edges.push({
+        id: `${sourceId}->${id}`,
+        source: sourceId,
+        target: id,
+        type: 'smoothstep',
+        animated: false,
+        markerEnd: { type: MarkerType.ArrowClosed },
+      });
+    }
+  }
 
   return { nodes, edges };
 }
@@ -381,12 +575,99 @@ function groupActionsByHeader(
   return actionsByHeaderId;
 }
 
+/** Where an action lives in the phases tree: directly in a phase, or inside one of a decision's branches. */
+type ActionLocation =
+  | { kind: 'phase'; phaseIndex: number; actionIndex: number }
+  | { kind: 'branch'; phaseIndex: number; actionIndex: number; branchIndex: number; branchActionIndex: number };
+
+function findActionLocation(phases: Phase[], actionId: string): ActionLocation | null {
+  for (let phaseIndex = 0; phaseIndex < phases.length; phaseIndex += 1) {
+    const actions = phases[phaseIndex].actions;
+    for (let actionIndex = 0; actionIndex < actions.length; actionIndex += 1) {
+      const action = actions[actionIndex];
+      if (action.id === actionId) return { kind: 'phase', phaseIndex, actionIndex };
+      if (!action.branches) continue;
+      for (let branchIndex = 0; branchIndex < action.branches.length; branchIndex += 1) {
+        const branchActions = action.branches[branchIndex].actions;
+        for (let branchActionIndex = 0; branchActionIndex < branchActions.length; branchActionIndex += 1) {
+          if (branchActions[branchActionIndex].id === actionId) {
+            return { kind: 'branch', phaseIndex, actionIndex, branchIndex, branchActionIndex };
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function getActionAtLocation(phases: Phase[], location: ActionLocation): Action {
+  const decision = phases[location.phaseIndex].actions[location.actionIndex];
+  if (location.kind === 'phase') return decision;
+  return decision.branches![location.branchIndex].actions[location.branchActionIndex];
+}
+
+/** Immutably replaces the single action at `location` with `nextAction`. */
+function setActionAtLocation(phases: Phase[], location: ActionLocation, nextAction: Action): Phase[] {
+  return phases.map((phase, phaseIndex) => {
+    if (phaseIndex !== location.phaseIndex) return phase;
+    return {
+      ...phase,
+      actions: phase.actions.map((action, actionIndex) => {
+        if (actionIndex !== location.actionIndex) return action;
+        if (location.kind === 'phase') return nextAction;
+        const branches = (action.branches ?? []).map((branch, branchIndex) => {
+          if (branchIndex !== location.branchIndex) return branch;
+          return {
+            ...branch,
+            actions: branch.actions.map((branchAction, branchActionIndex) =>
+              branchActionIndex === location.branchActionIndex ? nextAction : branchAction,
+            ),
+          };
+        });
+        return { ...action, branches };
+      }),
+    };
+  });
+}
+
+/** The sibling action list that owns `location` — a phase's actions, or a branch's actions. */
+function getSiblingActions(phases: Phase[], location: ActionLocation): Action[] {
+  if (location.kind === 'phase') return phases[location.phaseIndex].actions;
+  const decision = phases[location.phaseIndex].actions[location.actionIndex];
+  return decision.branches![location.branchIndex].actions;
+}
+
+/** Immutably replaces the sibling action list that owns `location`. */
+function setSiblingActions(phases: Phase[], location: ActionLocation, nextActions: Action[]): Phase[] {
+  return phases.map((phase, phaseIndex) => {
+    if (phaseIndex !== location.phaseIndex) return phase;
+    if (location.kind === 'phase') return { ...phase, actions: nextActions };
+    return {
+      ...phase,
+      actions: phase.actions.map((action, actionIndex) => {
+        if (actionIndex !== location.actionIndex) return action;
+        const branches = (action.branches ?? []).map((branch, branchIndex) =>
+          branchIndex === location.branchIndex ? { ...branch, actions: nextActions } : branch,
+        );
+        return { ...action, branches };
+      }),
+    };
+  });
+}
+
 /**
  * Derives the phases JSON from the current node positions: phases are ordered by
  * column (x), actions within a phase by row (y) then made stable by `at` — a drag
  * that didn't touch `at` keeps its row order, ties on `at` fall back to row order.
  * Edges are the source of truth for `dependsOn`: an edge is only kept if both its
  * source and target are still present among the given nodes.
+ *
+ * Decisions: an action becomes a decision if `branchHeader` nodes tagged with its id
+ * (`data.decisionId`) exist among the nodes. A branch's actions are the `action` nodes
+ * tagged with `data.branchOwnerId`/`data.branchIndex` pointing at that header — this
+ * tagging (not position) is what makes branch membership survive free dragging.
+ * Orphaned branch nodes (owner decision no longer present) are silently dropped,
+ * which is what makes deleting a decision node cascade-delete its branches for free.
  */
 function nodesToPhases(nodes: Node[], edges: Edge[], originalPhases: Phase[]): Phase[] {
   const headers = nodes
@@ -394,9 +675,32 @@ function nodesToPhases(nodes: Node[], edges: Edge[], originalPhases: Phase[]): P
     .slice()
     .sort((a, b) => a.position.x - b.position.x);
 
-  const actionNodes = nodes.filter((node): node is Node<ActionNodeData> => node.type === 'action');
-  const actionIds = new Set(actionNodes.map((node) => node.id));
-  const actionsByHeaderId = groupActionsByHeader(headers, actionNodes);
+  const allActionNodes = nodes.filter((node): node is Node<ActionNodeData> => node.type === 'action');
+  const actionIds = new Set(allActionNodes.map((node) => node.id));
+
+  const topLevelActionNodes = allActionNodes.filter((node) => !node.data.branchOwnerId);
+  const actionsByHeaderId = groupActionsByHeader(headers, topLevelActionNodes);
+
+  const branchActionsByKey = new Map<string, Node<ActionNodeData>[]>();
+  for (const node of allActionNodes) {
+    if (!node.data.branchOwnerId) continue;
+    const key = `${node.data.branchOwnerId}::${node.data.branchIndex}`;
+    const list = branchActionsByKey.get(key) ?? [];
+    list.push(node);
+    branchActionsByKey.set(key, list);
+  }
+
+  const branchHeadersByDecisionId = new Map<string, Node<BranchHeaderNodeData>[]>();
+  for (const node of nodes) {
+    if (node.type !== 'branchHeader') continue;
+    const data = node.data as BranchHeaderNodeData;
+    const list = branchHeadersByDecisionId.get(data.decisionId) ?? [];
+    list.push(node as Node<BranchHeaderNodeData>);
+    branchHeadersByDecisionId.set(data.decisionId, list);
+  }
+  for (const list of branchHeadersByDecisionId.values()) {
+    list.sort((a, b) => a.data.branchIndex - b.data.branchIndex);
+  }
 
   const dependsOnByTarget = new Map<string, string[]>();
   for (const edge of edges) {
@@ -405,6 +709,38 @@ function nodesToPhases(nodes: Node[], edges: Edge[], originalPhases: Phase[]): P
     const list = dependsOnByTarget.get(edge.target) ?? [];
     if (!list.includes(edge.source)) list.push(edge.source);
     dependsOnByTarget.set(edge.target, list);
+  }
+
+  function branchesForDecision(decisionId: string): ActionBranch[] | undefined {
+    const headerNodes = branchHeadersByDecisionId.get(decisionId);
+    if (!headerNodes?.length) return undefined;
+    return headerNodes.map((headerNode) => {
+      const key = `${decisionId}::${headerNode.data.branchIndex}`;
+      const branchActionNodes = (branchActionsByKey.get(key) ?? [])
+        .slice()
+        .sort((a, b) => a.position.y - b.position.y)
+        .sort((a, b) => Number(a.data.at) - Number(b.data.at));
+      return {
+        ...(headerNode.data.branchId ? { id: headerNode.data.branchId } : {}),
+        condition: headerNode.data.condition,
+        actions: branchActionNodes.map(nodeToAction),
+      };
+    });
+  }
+
+  function nodeToAction(node: Node<ActionNodeData>): Action {
+    const dependsOn = dependsOnByTarget.get(node.id);
+    const branches = branchesForDecision(node.id);
+    return {
+      id: node.id,
+      at: Number(node.data.at),
+      description: node.data.description,
+      kind: node.data.kind,
+      ...(node.data.iconId ? { iconId: node.data.iconId } : {}),
+      ...(node.data.condition ? { condition: node.data.condition } : {}),
+      ...(dependsOn && dependsOn.length ? { dependsOn } : {}),
+      ...(branches && branches.length ? { branches } : {}),
+    };
   }
 
   return headers.map((header, phaseIndex) => {
@@ -420,17 +756,7 @@ function nodesToPhases(nodes: Node[], edges: Edge[], originalPhases: Phase[]): P
       timeStart: header.data.timeStart,
       targetResources: original?.targetResources,
       targetVillagers: header.data.targetVillagers,
-      actions: orderedActions.map((node) => {
-        const dependsOn = dependsOnByTarget.get(node.id);
-        return {
-          id: node.id,
-          at: Number(node.data.at),
-          description: node.data.description,
-          kind: node.data.kind,
-          ...(node.data.iconId ? { iconId: node.data.iconId } : {}),
-          ...(dependsOn && dependsOn.length ? { dependsOn } : {}),
-        };
-      }),
+      actions: orderedActions.map(nodeToAction),
     };
   });
 }
@@ -449,6 +775,25 @@ interface HeaderDraft {
   age: Phase['age'];
   timeStart: string;
   targetVillagers: string;
+}
+
+interface DecisionBranchDraft {
+  key: string;
+  originalIndex: number | null;
+  condition: string;
+  actionCount: number;
+}
+
+interface DecisionDraft {
+  actionId: string;
+  condition: string;
+  branches: DecisionBranchDraft[];
+}
+
+interface BranchEditDraft {
+  decisionId: string;
+  branchIndex: number;
+  condition: string;
 }
 
 const DEFAULT_DRAFT_PHASES: Phase[] = [{ age: 'dark', timeStart: 0, actions: [] }];
@@ -477,6 +822,12 @@ export function BuildOrderEditor({
   const [deletePhaseIndex, setDeletePhaseIndex] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [headerDraft, setHeaderDraft] = useState<HeaderDraft | null>(null);
+  const [decisionDraft, setDecisionDraft] = useState<DecisionDraft | null>(null);
+  const [branchEditDraft, setBranchEditDraft] = useState<BranchEditDraft | null>(null);
+  const [deleteBranchTarget, setDeleteBranchTarget] = useState<{
+    decisionId: string;
+    branchIndex: number;
+  } | null>(null);
   const [menuState, setMenuState] = useState<MenuState | null>(null);
   const [linkFrom, setLinkFrom] = useState<string | null>(null);
   const [cursorFlowPos, setCursorFlowPos] = useState<{ x: number; y: number } | null>(null);
@@ -513,10 +864,20 @@ export function BuildOrderEditor({
     setDeleteTargetId(id);
   }
 
+  function rebuildFrom(nextPhases: Phase[]) {
+    const rebuilt = buildEditorElements(nextPhases, handlers);
+    setNodes(rebuilt.nodes);
+    setEdges(rebuilt.edges);
+  }
+
   function openEditDialog(id: string) {
     const node = nodesRef.current.find((candidate) => candidate.id === id);
     if (!node || node.type !== 'action') return;
     const data = node.data as ActionNodeData;
+    if (data.isDecision) {
+      openDecisionDialog(id);
+      return;
+    }
     setEditDraft({
       id,
       at: String(data.at),
@@ -550,39 +911,213 @@ export function BuildOrderEditor({
         ? { ...p, actions: [...p.actions, { at, description: '', kind: 'build' as const }] }
         : p,
     );
-    const rebuilt = buildEditorElements(nextPhases, handlers);
-    setNodes(rebuilt.nodes);
-    setEdges(rebuilt.edges);
+    rebuildFrom(nextPhases);
   }
 
   function insertActionAfter(afterActionId: string) {
     const phases = nodesToPhases(nodesRef.current, edgesRef.current, originalPhasesSource());
-    for (let phaseIndex = 0; phaseIndex < phases.length; phaseIndex += 1) {
-      const phase = phases[phaseIndex];
-      const actionIndex = phase.actions.findIndex((action) => action.id === afterActionId);
-      if (actionIndex === -1) continue;
+    const location = findActionLocation(phases, afterActionId);
+    if (!location) return;
 
-      const after = phase.actions[actionIndex];
-      const next = phase.actions[actionIndex + 1];
-      let at = after.at + 30;
-      if (next) {
-        const midpoint = Math.floor((after.at + next.at) / 2);
-        at = midpoint > after.at ? midpoint : after.at + 1;
-      }
+    const siblings = getSiblingActions(phases, location);
+    const index = location.kind === 'phase' ? location.actionIndex : location.branchActionIndex;
+    const after = siblings[index];
+    const next = siblings[index + 1];
+    let at = after.at + 30;
+    if (next) {
+      const midpoint = Math.floor((after.at + next.at) / 2);
+      at = midpoint > after.at ? midpoint : after.at + 1;
+    }
 
-      const nextActions = [
-        ...phase.actions.slice(0, actionIndex + 1),
-        { at, description: '', kind: 'build' as const },
-        ...phase.actions.slice(actionIndex + 1),
-      ];
-      const nextPhases = phases.map((p, index) =>
-        index === phaseIndex ? { ...p, actions: nextActions } : p,
-      );
-      const rebuilt = buildEditorElements(nextPhases, handlers);
-      setNodes(rebuilt.nodes);
-      setEdges(rebuilt.edges);
+    const nextSiblings = [
+      ...siblings.slice(0, index + 1),
+      { at, description: '', kind: 'build' as const },
+      ...siblings.slice(index + 1),
+    ];
+    rebuildFrom(setSiblingActions(phases, location, nextSiblings));
+  }
+
+  function makeDecision(actionId: string) {
+    const phases = nodesToPhases(nodesRef.current, edgesRef.current, originalPhasesSource());
+    const location = findActionLocation(phases, actionId);
+    if (!location || location.kind !== 'phase') return;
+    const decision = getActionAtLocation(phases, location);
+    const nextAction: Action = {
+      ...decision,
+      branches: [
+        { condition: 'Si …', actions: [] },
+        { condition: 'Sinon', actions: [] },
+      ],
+    };
+    rebuildFrom(setActionAtLocation(phases, location, nextAction));
+  }
+
+  function addBranch(actionId: string) {
+    const phases = nodesToPhases(nodesRef.current, edgesRef.current, originalPhasesSource());
+    const location = findActionLocation(phases, actionId);
+    if (!location || location.kind !== 'phase') return;
+    const decision = getActionAtLocation(phases, location);
+    const nextAction: Action = {
+      ...decision,
+      branches: [...(decision.branches ?? []), { condition: 'Si …', actions: [] }],
+    };
+    rebuildFrom(setActionAtLocation(phases, location, nextAction));
+  }
+
+  function addBranchAction(decisionId: string, branchIndex: number) {
+    const phases = nodesToPhases(nodesRef.current, edgesRef.current, originalPhasesSource());
+    const location = findActionLocation(phases, decisionId);
+    if (!location || location.kind !== 'phase') return;
+    const decision = getActionAtLocation(phases, location);
+    const branch = decision.branches?.[branchIndex];
+    if (!branch) return;
+    const lastAction = branch.actions[branch.actions.length - 1];
+    const at = lastAction ? lastAction.at + 30 : decision.at + 30;
+    const nextBranches = decision.branches!.map((b, bi) =>
+      bi === branchIndex
+        ? { ...b, actions: [...b.actions, { at, description: '', kind: 'build' as const }] }
+        : b,
+    );
+    rebuildFrom(setActionAtLocation(phases, location, { ...decision, branches: nextBranches }));
+  }
+
+  function openDecisionDialog(actionId: string) {
+    const phases = nodesToPhases(nodesRef.current, edgesRef.current, originalPhasesSource());
+    const location = findActionLocation(phases, actionId);
+    if (!location || location.kind !== 'phase') return;
+    const action = getActionAtLocation(phases, location);
+    setDecisionDraft({
+      actionId,
+      condition: action.condition ?? '',
+      branches: (action.branches ?? []).map((branch, index) => ({
+        key: generateActionId(),
+        originalIndex: index,
+        condition: branch.condition,
+        actionCount: branch.actions.length,
+      })),
+    });
+  }
+
+  function addDecisionDraftBranch() {
+    setDecisionDraft((current) =>
+      current
+        ? {
+            ...current,
+            branches: [
+              ...current.branches,
+              { key: generateActionId(), originalIndex: null, condition: 'Si …', actionCount: 0 },
+            ],
+          }
+        : current,
+    );
+  }
+
+  function removeDecisionDraftBranch(key: string) {
+    setDecisionDraft((current) =>
+      current ? { ...current, branches: current.branches.filter((branch) => branch.key !== key) } : current,
+    );
+  }
+
+  function updateDecisionDraftBranchCondition(key: string, condition: string) {
+    setDecisionDraft((current) =>
+      current
+        ? {
+            ...current,
+            branches: current.branches.map((branch) =>
+              branch.key === key ? { ...branch, condition } : branch,
+            ),
+          }
+        : current,
+    );
+  }
+
+  function applyDecisionEdit() {
+    if (!decisionDraft) return;
+    const phases = nodesToPhases(nodesRef.current, edgesRef.current, originalPhasesSource());
+    const location = findActionLocation(phases, decisionDraft.actionId);
+    if (!location || location.kind !== 'phase') {
+      setDecisionDraft(null);
       return;
     }
+    const decision = getActionAtLocation(phases, location);
+    const originalBranches = decision.branches ?? [];
+
+    const nextBranches: ActionBranch[] = decisionDraft.branches.map((draft) => {
+      const original = draft.originalIndex !== null ? originalBranches[draft.originalIndex] : undefined;
+      return {
+        ...(original?.id ? { id: original.id } : {}),
+        condition: draft.condition.trim() || 'Si …',
+        actions: original?.actions ?? [],
+      };
+    });
+
+    const nextAction: Action = {
+      id: decision.id,
+      at: decision.at,
+      description: decision.description,
+      kind: decision.kind,
+      ...(decision.iconId ? { iconId: decision.iconId } : {}),
+      ...(decision.dependsOn?.length ? { dependsOn: decision.dependsOn } : {}),
+      condition: decisionDraft.condition.trim() || undefined,
+      ...(nextBranches.length ? { branches: nextBranches } : {}),
+    };
+
+    rebuildFrom(setActionAtLocation(phases, location, nextAction));
+    setDecisionDraft(null);
+  }
+
+  function openBranchEditDialog(decisionId: string, branchIndex: number) {
+    const phases = nodesToPhases(nodesRef.current, edgesRef.current, originalPhasesSource());
+    const location = findActionLocation(phases, decisionId);
+    if (!location || location.kind !== 'phase') return;
+    const decision = getActionAtLocation(phases, location);
+    const branch = decision.branches?.[branchIndex];
+    if (!branch) return;
+    setBranchEditDraft({ decisionId, branchIndex, condition: branch.condition });
+  }
+
+  function applyBranchEdit() {
+    if (!branchEditDraft) return;
+    const condition = branchEditDraft.condition.trim();
+    if (!condition) {
+      toast.error('La condition de la branche ne peut pas être vide.');
+      return;
+    }
+    const phases = nodesToPhases(nodesRef.current, edgesRef.current, originalPhasesSource());
+    const location = findActionLocation(phases, branchEditDraft.decisionId);
+    if (!location || location.kind !== 'phase') {
+      setBranchEditDraft(null);
+      return;
+    }
+    const decision = getActionAtLocation(phases, location);
+    const nextBranches = (decision.branches ?? []).map((branch, index) =>
+      index === branchEditDraft.branchIndex ? { ...branch, condition } : branch,
+    );
+    rebuildFrom(setActionAtLocation(phases, location, { ...decision, branches: nextBranches }));
+    setBranchEditDraft(null);
+  }
+
+  function requestDeleteBranch(decisionId: string, branchIndex: number) {
+    setDeleteBranchTarget({ decisionId, branchIndex });
+  }
+
+  function confirmDeleteBranch() {
+    if (!deleteBranchTarget) return;
+    const phases = nodesToPhases(nodesRef.current, edgesRef.current, originalPhasesSource());
+    const location = findActionLocation(phases, deleteBranchTarget.decisionId);
+    if (!location || location.kind !== 'phase') {
+      setDeleteBranchTarget(null);
+      return;
+    }
+    const decision = getActionAtLocation(phases, location);
+    const nextBranches = (decision.branches ?? []).filter(
+      (_, index) => index !== deleteBranchTarget.branchIndex,
+    );
+    const nextAction: Action = { ...decision };
+    if (nextBranches.length) nextAction.branches = nextBranches;
+    else delete nextAction.branches;
+    rebuildFrom(setActionAtLocation(phases, location, nextAction));
+    setDeleteBranchTarget(null);
   }
 
   const handlers: NodeHandlers = {
@@ -590,15 +1125,15 @@ export function BuildOrderEditor({
     onEditAction: openEditDialog,
     onDeleteAction: requestDelete,
     onEditHeader: openHeaderEditDialog,
+    onEditBranch: openBranchEditDialog,
+    onDeleteBranch: requestDeleteBranch,
+    onAddBranchAction: addBranchAction,
   };
 
   function confirmDelete() {
     if (!deleteTargetId) return;
     const remainingNodes = nodesRef.current.filter((node) => node.id !== deleteTargetId);
-    const phases = nodesToPhases(remainingNodes, edgesRef.current, originalPhasesSource());
-    const rebuilt = buildEditorElements(phases, handlers);
-    setNodes(rebuilt.nodes);
-    setEdges(rebuilt.edges);
+    rebuildFrom(nodesToPhases(remainingNodes, edgesRef.current, originalPhasesSource()));
     setDeleteTargetId(null);
   }
 
@@ -606,9 +1141,7 @@ export function BuildOrderEditor({
     if (deletePhaseIndex === null) return;
     const phases = nodesToPhases(nodesRef.current, edgesRef.current, originalPhasesSource());
     const nextPhases = phases.filter((_, index) => index !== deletePhaseIndex);
-    const rebuilt = buildEditorElements(nextPhases.length ? nextPhases : DEFAULT_DRAFT_PHASES, handlers);
-    setNodes(rebuilt.nodes);
-    setEdges(rebuilt.edges);
+    rebuildFrom(nextPhases.length ? nextPhases : DEFAULT_DRAFT_PHASES);
     setDeletePhaseIndex(null);
   }
 
@@ -650,9 +1183,7 @@ export function BuildOrderEditor({
     const lastPhase = phases[phases.length - 1];
     const timeStart = lastPhase ? lastPhase.timeStart + 60 : 0;
     const nextPhases: Phase[] = [...phases, { age: 'dark', timeStart, actions: [] }];
-    const rebuilt = buildEditorElements(nextPhases, handlers);
-    setNodes(rebuilt.nodes);
-    setEdges(rebuilt.edges);
+    rebuildFrom(nextPhases);
   }
 
   function resetFromSource() {
@@ -672,6 +1203,9 @@ export function BuildOrderEditor({
     setDeleteTargetId(null);
     setDeletePhaseIndex(null);
     setHeaderDraft(null);
+    setDecisionDraft(null);
+    setBranchEditDraft(null);
+    setDeleteBranchTarget(null);
     setMenuState(null);
     cancelLinkMode();
   }
@@ -742,7 +1276,7 @@ export function BuildOrderEditor({
       .filter((node): node is Node<PhaseHeaderNodeData> => node.type === 'phaseHeader')
       .sort((a, b) => a.position.x - b.position.x);
     const actionNodes = currentNodes.filter(
-      (node): node is Node<ActionNodeData> => node.type === 'action',
+      (node): node is Node<ActionNodeData> => node.type === 'action' && !node.data.branchOwnerId,
     );
     const actionsByHeaderId = groupActionsByHeader(headers, actionNodes);
 
@@ -839,10 +1373,16 @@ export function BuildOrderEditor({
       return;
     }
     if (node.type === 'action') {
+      const data = node.data as ActionNodeData;
+      const items = data.isDecision
+        ? DECISION_ACTION_CONTEXT_ITEMS
+        : data.branchOwnerId
+          ? BRANCH_ACTION_CONTEXT_ITEMS
+          : ACTION_CONTEXT_ITEMS;
       setMenuState({
         x: event.clientX,
         y: event.clientY,
-        items: ACTION_CONTEXT_ITEMS,
+        items,
         context: { type: 'action', id: node.id },
       });
     } else if (node.type === 'phaseHeader') {
@@ -852,6 +1392,14 @@ export function BuildOrderEditor({
         y: event.clientY,
         items: PHASE_CONTEXT_ITEMS,
         context: { type: 'phaseHeader', phaseIndex: data.phaseIndex },
+      });
+    } else if (node.type === 'branchHeader') {
+      const data = node.data as BranchHeaderNodeData;
+      setMenuState({
+        x: event.clientX,
+        y: event.clientY,
+        items: BRANCH_HEADER_CONTEXT_ITEMS,
+        context: { type: 'branchHeader', decisionId: data.decisionId, branchIndex: data.branchIndex },
       });
     }
   };
@@ -920,14 +1468,22 @@ export function BuildOrderEditor({
     if (menu.context.type === 'action') {
       const actionId = menu.context.id;
       if (id === 'edit') openEditDialog(actionId);
+      else if (id === 'edit-decision') openDecisionDialog(actionId);
       else if (id === 'add-after') insertActionAfter(actionId);
       else if (id === 'delete') requestDelete(actionId);
       else if (id === 'link-from') setLinkFrom(actionId);
+      else if (id === 'make-decision') makeDecision(actionId);
+      else if (id === 'add-branch') addBranch(actionId);
     } else if (menu.context.type === 'phaseHeader') {
       const { phaseIndex } = menu.context;
       if (id === 'edit-phase') openHeaderEditDialog(phaseIndex);
       else if (id === 'add-action') handleAddAction(phaseIndex);
       else if (id === 'delete-phase') setDeletePhaseIndex(phaseIndex);
+    } else if (menu.context.type === 'branchHeader') {
+      const { decisionId, branchIndex } = menu.context;
+      if (id === 'edit-branch') openBranchEditDialog(decisionId, branchIndex);
+      else if (id === 'add-branch-action') addBranchAction(decisionId, branchIndex);
+      else if (id === 'delete-branch') requestDeleteBranch(decisionId, branchIndex);
     } else {
       if (id === 'add-phase') addPhase();
       else if (id === 'add-action') {
@@ -967,6 +1523,12 @@ export function BuildOrderEditor({
     ];
   }, [edges, linkFrom, cursorFlowPos]);
 
+  const deleteTargetHasBranches = Boolean(
+    deleteTargetId &&
+      (nodesRef.current.find((node) => node.id === deleteTargetId)?.data as ActionNodeData | undefined)
+        ?.isDecision,
+  );
+
   async function handleSave() {
     if (!buildOrder || !getToken) return;
     const currentNodes = nodesRef.current;
@@ -988,7 +1550,7 @@ export function BuildOrderEditor({
     }
 
     const phases = nodesToPhases(currentNodes, currentEdges, originalPhasesSource());
-    const allActions = phases.flatMap((phase) => phase.actions);
+    const allActions = phases.flatMap((phase) => flattenActionsDeep(phase.actions));
     const actionsById = new Map(allActions.map((action) => [action.id as string, action]));
 
     const cycle = findDependencyCycle(
@@ -1198,7 +1760,10 @@ export function BuildOrderEditor({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Supprimer cette action ?</DialogTitle>
-            <DialogDescription>Cette action sera retirée du build order.</DialogDescription>
+            <DialogDescription>
+              Cette action sera retirée du build order.
+              {deleteTargetHasBranches && ' Ses branches seront également supprimées.'}
+            </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTargetId(null)}>
@@ -1227,6 +1792,28 @@ export function BuildOrderEditor({
               Annuler
             </Button>
             <Button variant="destructive" onClick={confirmDeletePhase}>
+              Supprimer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={deleteBranchTarget !== null}
+        onOpenChange={(open) => !open && setDeleteBranchTarget(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Supprimer cette branche ?</DialogTitle>
+            <DialogDescription>
+              La branche et toutes ses actions seront retirées du build order.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteBranchTarget(null)}>
+              Annuler
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteBranch}>
               Supprimer
             </Button>
           </DialogFooter>
@@ -1302,6 +1889,115 @@ export function BuildOrderEditor({
               Annuler
             </Button>
             <Button onClick={applyHeaderEdit}>Appliquer</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={decisionDraft !== null} onOpenChange={(open) => !open && setDecisionDraft(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Éditer la décision</DialogTitle>
+            <DialogDescription>
+              Ajustez la condition simple de l&apos;action et gérez ses branches.
+            </DialogDescription>
+          </DialogHeader>
+          {decisionDraft && (
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="decision-condition">Condition (optionnelle)</Label>
+                <Input
+                  id="decision-condition"
+                  value={decisionDraft.condition}
+                  placeholder="Si contre cavaliers précoces"
+                  onChange={(event) =>
+                    setDecisionDraft({ ...decisionDraft, condition: event.target.value })
+                  }
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Label>Branches</Label>
+                {decisionDraft.branches.length === 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    Aucune branche — cette action redeviendra une action simple.
+                  </p>
+                )}
+                {decisionDraft.branches.map((branch) => (
+                  <div key={branch.key} className="flex items-center gap-2">
+                    <Input
+                      aria-label="Condition de la branche"
+                      value={branch.condition}
+                      onChange={(event) =>
+                        updateDecisionDraftBranchCondition(branch.key, event.target.value)
+                      }
+                    />
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {branch.actionCount} action{branch.actionCount === 1 ? '' : 's'}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => removeDecisionDraftBranch(branch.key)}
+                    >
+                      <Trash2Icon />
+                    </Button>
+                  </div>
+                ))}
+                <Button type="button" variant="outline" size="sm" onClick={addDecisionDraftBranch}>
+                  <PlusIcon />
+                  Ajouter une branche
+                </Button>
+              </div>
+
+              {decisionDraft.branches.length > 0 && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDecisionDraft({ ...decisionDraft, branches: [] })}
+                >
+                  <SplitIcon />
+                  Revenir à une action simple
+                </Button>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDecisionDraft(null)}>
+              Annuler
+            </Button>
+            <Button onClick={applyDecisionEdit}>Appliquer</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={branchEditDraft !== null}
+        onOpenChange={(open) => !open && setBranchEditDraft(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Modifier la condition de la branche</DialogTitle>
+            <DialogDescription>Cette condition s&apos;affiche en en-tête de la branche.</DialogDescription>
+          </DialogHeader>
+          {branchEditDraft && (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="branch-condition">Condition de la branche</Label>
+              <Input
+                id="branch-condition"
+                value={branchEditDraft.condition}
+                onChange={(event) =>
+                  setBranchEditDraft({ ...branchEditDraft, condition: event.target.value })
+                }
+              />
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBranchEditDraft(null)}>
+              Annuler
+            </Button>
+            <Button onClick={applyBranchEdit}>Appliquer</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
