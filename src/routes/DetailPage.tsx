@@ -26,7 +26,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { PencilIcon, PlayIcon, Trash2Icon, XIcon } from 'lucide-react';
+import { PencilIcon, PlayIcon, Trash2Icon } from 'lucide-react';
 
 const TYPE_LABELS: Record<BuildOrder['type'], string> = {
   rush: 'Rush',
@@ -44,7 +44,6 @@ export function DetailPage() {
   const [buildOrder, setBuildOrder] = useState<BuildOrder | null | undefined>(undefined);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -160,14 +159,6 @@ export function DetailPage() {
                 <PencilIcon />
                 Modifier
               </Button>
-              <Button
-                variant={editing ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setEditing((prev) => !prev)}
-              >
-                {editing ? <XIcon /> : <PencilIcon />}
-                {editing ? "Terminer l'édition" : 'Éditer le grid'}
-              </Button>
               <Button variant="destructive" size="sm" onClick={() => setConfirmOpen(true)}>
                 <Trash2Icon />
                 Supprimer
@@ -180,15 +171,13 @@ export function DetailPage() {
       <section className="space-y-4">
         <h2 className="text-xl font-semibold">Build Order</h2>
         <Card>
-          <CardContent className="h-[600px]">
-            {isOwner && editing ? (
+          <CardContent className="h-[700px]">
+            {isOwner ? (
               <BuildOrderEditor
                 buildOrder={buildOrder}
                 getToken={getToken}
-                onSaved={(updated) => {
-                  setBuildOrder(updated);
-                  setEditing(false);
-                }}
+                onSaved={(updated) => setBuildOrder(updated)}
+                heightClassName="h-[700px]"
               />
             ) : (
               <BuildOrderFlow buildOrder={buildOrder} />

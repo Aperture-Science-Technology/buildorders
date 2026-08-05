@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -13,15 +13,18 @@ import {
   type Node,
   type Edge,
   type EdgeMouseHandler,
+  type NodeMouseHandler,
   type NodeProps,
   type NodeTypes,
   type OnConnect,
+  type ReactFlowInstance,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { toast } from 'sonner';
 import type { Action, BuildOrder, Phase } from '@/lib/types';
 import { updateBuildOrder } from '@/lib/api';
 import { AGE_LABELS, formatTime } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -42,6 +45,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { EditorContextMenu, type ContextMenuItem } from '@/components/EditorContextMenu';
 import {
   HammerIcon,
   FlaskConicalIcon,
@@ -54,8 +58,11 @@ import {
   Trash2Icon,
   SaveIcon,
   XIcon,
+  Link2Icon,
   Link2OffIcon,
   ArrowDownUpIcon,
+  PencilIcon,
+  Rows3Icon,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -146,6 +153,27 @@ const ACTION_KIND_OPTIONS: { value: NonNullable<Action['kind']>; label: string }
 const COLUMN_WIDTH = 320;
 const ROW_HEIGHT = 140;
 const ROW_Y_OFFSET = 80;
+const CURSOR_NODE_ID = '__cursor__';
+
+const ACTION_CONTEXT_ITEMS: ContextMenuItem[] = [
+  { id: 'edit', label: 'Modifier', icon: PencilIcon },
+  { id: 'add-after', label: 'Ajouter après', icon: PlusIcon },
+  { id: 'link-from', label: 'Lier vers…', icon: Link2Icon },
+  { id: 'delete', label: 'Supprimer', icon: Trash2Icon, danger: true },
+];
+
+const PHASE_CONTEXT_ITEMS: ContextMenuItem[] = [
+  { id: 'edit-phase', label: 'Modifier la phase', icon: PencilIcon },
+  { id: 'add-action', label: 'Ajouter une action', icon: PlusIcon },
+  { id: 'delete-phase', label: 'Supprimer la phase', icon: Trash2Icon, danger: true },
+];
+
+const PANE_CONTEXT_ITEMS: ContextMenuItem[] = [
+  { id: 'add-phase', label: 'Ajouter une phase', icon: Rows3Icon },
+  { id: 'add-action', label: 'Ajouter une action', icon: PlusIcon },
+  { id: 'auto-reorder', label: 'Réordonner auto', icon: ArrowDownUpIcon },
+  { id: 'clear-links', label: 'Supprimer les liens', icon: Link2OffIcon, danger: true },
+];
 
 interface ActionNodeData extends Record<string, unknown> {
   description: string;
@@ -165,11 +193,26 @@ interface PhaseHeaderNodeData extends Record<string, unknown> {
   onEditHeader: (phaseIndex: number) => void;
 }
 
+type CursorNodeData = Record<string, unknown>;
+
 interface NodeHandlers {
   onAddAction: (phaseIndex: number) => void;
   onEditAction: (id: string) => void;
   onDeleteAction: (id: string) => void;
   onEditHeader: (phaseIndex: number) => void;
+}
+
+/** Menu context: what was right-clicked, so item selection can be dispatched. */
+type MenuContext =
+  | { type: 'action'; id: string }
+  | { type: 'phaseHeader'; phaseIndex: number }
+  | { type: 'pane'; flowX: number };
+
+interface MenuState {
+  x: number;
+  y: number;
+  items: ContextMenuItem[];
+  context: MenuContext;
 }
 
 function ActionNode({ id, data }: NodeProps<Node<ActionNodeData, 'action'>>) {
@@ -232,9 +275,14 @@ function PhaseHeaderNode({ data }: NodeProps<Node<PhaseHeaderNodeData, 'phaseHea
   );
 }
 
+function CursorNode() {
+  return <div className="size-px opacity-0" />;
+}
+
 const nodeTypes: NodeTypes = {
   action: ActionNode,
   phaseHeader: PhaseHeaderNode,
+  cursor: CursorNode,
 };
 
 function buildEditorElements(
@@ -420,9 +468,12 @@ export function BuildOrderEditor({
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [deletePhaseIndex, setDeletePhaseIndex] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
-
   const [headerDraft, setHeaderDraft] = useState<HeaderDraft | null>(null);
+  const [menuState, setMenuState] = useState<MenuState | null>(null);
+  const [linkFrom, setLinkFrom] = useState<string | null>(null);
+  const [cursorFlowPos, setCursorFlowPos] = useState<{ x: number; y: number } | null>(null);
 
   const nodesRef = useRef<Node[]>([]);
   useEffect(() => {
@@ -438,8 +489,18 @@ export function BuildOrderEditor({
     buildOrder?.phases ?? (initialPhases?.length ? initialPhases : DEFAULT_DRAFT_PHASES),
   );
 
+  /** Origin phases (canonicalised through nodesToPhases) — the dirty baseline. */
+  const originRef = useRef<string | null>(null);
+
+  const reactFlowInstanceRef = useRef<ReactFlowInstance | null>(null);
+
   function originalPhasesSource(): Phase[] {
     return buildOrder ? buildOrder.phases : latestPhasesRef.current;
+  }
+
+  function cancelLinkMode() {
+    setLinkFrom(null);
+    setCursorFlowPos(null);
   }
 
   function requestDelete(id: string) {
@@ -487,6 +548,36 @@ export function BuildOrderEditor({
     setEdges(rebuilt.edges);
   }
 
+  function insertActionAfter(afterActionId: string) {
+    const phases = nodesToPhases(nodesRef.current, edgesRef.current, originalPhasesSource());
+    for (let phaseIndex = 0; phaseIndex < phases.length; phaseIndex += 1) {
+      const phase = phases[phaseIndex];
+      const actionIndex = phase.actions.findIndex((action) => action.id === afterActionId);
+      if (actionIndex === -1) continue;
+
+      const after = phase.actions[actionIndex];
+      const next = phase.actions[actionIndex + 1];
+      let at = after.at + 30;
+      if (next) {
+        const midpoint = Math.floor((after.at + next.at) / 2);
+        at = midpoint > after.at ? midpoint : after.at + 1;
+      }
+
+      const nextActions = [
+        ...phase.actions.slice(0, actionIndex + 1),
+        { at, description: '', kind: 'build' as const },
+        ...phase.actions.slice(actionIndex + 1),
+      ];
+      const nextPhases = phases.map((p, index) =>
+        index === phaseIndex ? { ...p, actions: nextActions } : p,
+      );
+      const rebuilt = buildEditorElements(nextPhases, handlers);
+      setNodes(rebuilt.nodes);
+      setEdges(rebuilt.edges);
+      return;
+    }
+  }
+
   const handlers: NodeHandlers = {
     onAddAction: handleAddAction,
     onEditAction: openEditDialog,
@@ -502,6 +593,16 @@ export function BuildOrderEditor({
     setNodes(rebuilt.nodes);
     setEdges(rebuilt.edges);
     setDeleteTargetId(null);
+  }
+
+  function confirmDeletePhase() {
+    if (deletePhaseIndex === null) return;
+    const phases = nodesToPhases(nodesRef.current, edgesRef.current, originalPhasesSource());
+    const nextPhases = phases.filter((_, index) => index !== deletePhaseIndex);
+    const rebuilt = buildEditorElements(nextPhases.length ? nextPhases : DEFAULT_DRAFT_PHASES, handlers);
+    setNodes(rebuilt.nodes);
+    setEdges(rebuilt.edges);
+    setDeletePhaseIndex(null);
   }
 
   function applyEdit() {
@@ -554,11 +655,17 @@ export function BuildOrderEditor({
         : DEFAULT_DRAFT_PHASES;
     const rebuilt = buildEditorElements(source, handlers, buildOrder?.layout);
     latestPhasesRef.current = source;
+    originRef.current = buildOrder
+      ? JSON.stringify(nodesToPhases(rebuilt.nodes, rebuilt.edges, source))
+      : null;
     setNodes(rebuilt.nodes);
     setEdges(rebuilt.edges);
     setEditDraft(null);
     setDeleteTargetId(null);
+    setDeletePhaseIndex(null);
     setHeaderDraft(null);
+    setMenuState(null);
+    cancelLinkMode();
   }
 
   useEffect(() => {
@@ -573,6 +680,22 @@ export function BuildOrderEditor({
     onPhasesChange?.(phases);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodes, edges]);
+
+  const currentPhasesJson = useMemo(() => {
+    if (!buildOrder) return null;
+    return JSON.stringify(nodesToPhases(nodes, edges, originalPhasesSource()));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, edges, buildOrder]);
+
+  const dirty = Boolean(buildOrder) && currentPhasesJson !== originRef.current;
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape' && linkFrom) cancelLinkMode();
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [linkFrom]);
 
   const onConnect: OnConnect = (connection) => {
     if (!connection.source || !connection.target || connection.source === connection.target) return;
@@ -684,6 +807,158 @@ export function BuildOrderEditor({
     setHeaderDraft(null);
   }
 
+  function nearestPhaseIndex(flowX: number): number | null {
+    const headers = nodesRef.current
+      .filter((node): node is Node<PhaseHeaderNodeData> => node.type === 'phaseHeader')
+      .sort((a, b) => a.position.x - b.position.x);
+    if (headers.length === 0) return null;
+    let nearest = headers[0];
+    let nearestDistance = Math.abs(nearest.position.x - flowX);
+    for (const header of headers.slice(1)) {
+      const distance = Math.abs(header.position.x - flowX);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearest = header;
+      }
+    }
+    return nearest.data.phaseIndex;
+  }
+
+  const handleNodeContextMenu: NodeMouseHandler = (event, node) => {
+    event.preventDefault();
+    if (linkFrom) {
+      cancelLinkMode();
+      return;
+    }
+    if (node.type === 'action') {
+      setMenuState({
+        x: event.clientX,
+        y: event.clientY,
+        items: ACTION_CONTEXT_ITEMS,
+        context: { type: 'action', id: node.id },
+      });
+    } else if (node.type === 'phaseHeader') {
+      const data = node.data as PhaseHeaderNodeData;
+      setMenuState({
+        x: event.clientX,
+        y: event.clientY,
+        items: PHASE_CONTEXT_ITEMS,
+        context: { type: 'phaseHeader', phaseIndex: data.phaseIndex },
+      });
+    }
+  };
+
+  function handlePaneContextMenu(event: React.MouseEvent | MouseEvent) {
+    event.preventDefault();
+    if (linkFrom) {
+      cancelLinkMode();
+      return;
+    }
+    const instance = reactFlowInstanceRef.current;
+    const flowPos = instance?.screenToFlowPosition({ x: event.clientX, y: event.clientY }) ?? {
+      x: 0,
+      y: 0,
+    };
+    setMenuState({
+      x: event.clientX,
+      y: event.clientY,
+      items: PANE_CONTEXT_ITEMS,
+      context: { type: 'pane', flowX: flowPos.x },
+    });
+  }
+
+  const handleNodeClick: NodeMouseHandler = (event, node) => {
+    if (!linkFrom) return;
+    event.stopPropagation();
+    if (node.type !== 'action' || node.id === linkFrom) {
+      cancelLinkMode();
+      return;
+    }
+    const source = linkFrom;
+    const target = node.id;
+    setEdges((current) => {
+      const alreadyExists = current.some((edge) => edge.source === source && edge.target === target);
+      if (alreadyExists) return current;
+      return addEdge(
+        {
+          id: `${source}->${target}`,
+          source,
+          target,
+          type: 'smoothstep',
+          markerEnd: { type: MarkerType.ArrowClosed },
+        },
+        current,
+      );
+    });
+    cancelLinkMode();
+  };
+
+  function handlePaneClick() {
+    if (linkFrom) cancelLinkMode();
+  }
+
+  function handlePointerMoveForLink(event: React.MouseEvent) {
+    if (!linkFrom) return;
+    const instance = reactFlowInstanceRef.current;
+    if (!instance) return;
+    setCursorFlowPos(instance.screenToFlowPosition({ x: event.clientX, y: event.clientY }));
+  }
+
+  function handleContextMenuSelect(id: string) {
+    const menu = menuState;
+    setMenuState(null);
+    if (!menu) return;
+
+    if (menu.context.type === 'action') {
+      const actionId = menu.context.id;
+      if (id === 'edit') openEditDialog(actionId);
+      else if (id === 'add-after') insertActionAfter(actionId);
+      else if (id === 'delete') requestDelete(actionId);
+      else if (id === 'link-from') setLinkFrom(actionId);
+    } else if (menu.context.type === 'phaseHeader') {
+      const { phaseIndex } = menu.context;
+      if (id === 'edit-phase') openHeaderEditDialog(phaseIndex);
+      else if (id === 'add-action') handleAddAction(phaseIndex);
+      else if (id === 'delete-phase') setDeletePhaseIndex(phaseIndex);
+    } else {
+      if (id === 'add-phase') addPhase();
+      else if (id === 'add-action') {
+        const phaseIndex = nearestPhaseIndex(menu.context.flowX);
+        if (phaseIndex !== null) handleAddAction(phaseIndex);
+      } else if (id === 'clear-links') clearAllEdges();
+      else if (id === 'auto-reorder') autoReorder();
+    }
+  }
+
+  const displayNodes = useMemo(() => {
+    if (!linkFrom || !cursorFlowPos) return nodes;
+    return [
+      ...nodes,
+      {
+        id: CURSOR_NODE_ID,
+        type: 'cursor',
+        position: cursorFlowPos,
+        data: {} satisfies CursorNodeData,
+        draggable: false,
+        selectable: false,
+      },
+    ];
+  }, [nodes, linkFrom, cursorFlowPos]);
+
+  const displayEdges = useMemo(() => {
+    if (!linkFrom || !cursorFlowPos) return edges;
+    return [
+      ...edges,
+      {
+        id: '__temp-link__',
+        source: linkFrom,
+        target: CURSOR_NODE_ID,
+        type: 'straight',
+        style: { strokeDasharray: '6 4' },
+      },
+    ];
+  }, [edges, linkFrom, cursorFlowPos]);
+
   async function handleSave() {
     if (!buildOrder || !getToken) return;
     const currentNodes = nodesRef.current;
@@ -753,42 +1028,41 @@ export function BuildOrderEditor({
 
   return (
     <div className={`flex ${heightClassName} flex-col`}>
-      <div className="mb-3 flex gap-2">
-        <Button type="button" variant="outline" size="sm" onClick={addPhase}>
-          <PlusIcon />
-          Ajouter une phase
-        </Button>
-        <Button type="button" variant="outline" size="sm" onClick={autoReorder}>
-          <ArrowDownUpIcon />
-          Réordonner auto
-        </Button>
-        <Button type="button" variant="outline" size="sm" onClick={clearAllEdges}>
-          <Link2OffIcon />
-          Supprimer les liens
-        </Button>
-        <div className="flex-1" />
-        {buildOrder && (
-          <>
-            <Button type="button" variant="outline" size="sm" onClick={resetFromSource}>
-              <XIcon />
-              Annuler
-            </Button>
-            <Button type="button" size="sm" onClick={handleSave} disabled={saving}>
-              <SaveIcon />
-              {saving ? 'Enregistrement…' : 'Enregistrer'}
-            </Button>
-          </>
-        )}
-      </div>
+      {buildOrder && dirty && (
+        <div className="mb-3 flex justify-end gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={resetFromSource}>
+            <XIcon />
+            Annuler
+          </Button>
+          <Button type="button" size="sm" onClick={handleSave} disabled={saving}>
+            <SaveIcon />
+            {saving ? 'Enregistrement…' : 'Enregistrer'}
+          </Button>
+        </div>
+      )}
 
-      <div className="min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1" onMouseMove={handlePointerMoveForLink}>
+        {linkFrom && (
+          <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center">
+            <Badge className="pointer-events-auto">
+              Cliquez sur une action pour créer le lien · Échap pour annuler
+            </Badge>
+          </div>
+        )}
         <ReactFlow
-          nodes={nodes}
-          edges={edges}
+          nodes={displayNodes}
+          edges={displayEdges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           onEdgeDoubleClick={onEdgeDoubleClick}
+          onNodeContextMenu={handleNodeContextMenu}
+          onPaneContextMenu={handlePaneContextMenu}
+          onNodeClick={handleNodeClick}
+          onPaneClick={handlePaneClick}
+          onInit={(instance) => {
+            reactFlowInstanceRef.current = instance;
+          }}
           nodeTypes={nodeTypes}
           fitView
           proOptions={{ hideAttribution: true }}
@@ -799,12 +1073,23 @@ export function BuildOrderEditor({
           panOnScroll={false}
           nodesDraggable={true}
           nodesConnectable={true}
+          className={cn(linkFrom && 'cursor-crosshair')}
         >
           <Background />
           <Controls />
           <MiniMap />
         </ReactFlow>
       </div>
+
+      {menuState && (
+        <EditorContextMenu
+          x={menuState.x}
+          y={menuState.y}
+          items={menuState.items}
+          onSelect={handleContextMenuSelect}
+          onClose={() => setMenuState(null)}
+        />
+      )}
 
       <Dialog open={editDraft !== null} onOpenChange={(open) => !open && setEditDraft(null)}>
         <DialogContent>
@@ -882,6 +1167,28 @@ export function BuildOrderEditor({
               Annuler
             </Button>
             <Button variant="destructive" onClick={confirmDelete}>
+              Supprimer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={deletePhaseIndex !== null}
+        onOpenChange={(open) => !open && setDeletePhaseIndex(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Supprimer cette phase ?</DialogTitle>
+            <DialogDescription>
+              La phase et toutes ses actions seront retirées du build order.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeletePhaseIndex(null)}>
+              Annuler
+            </Button>
+            <Button variant="destructive" onClick={confirmDeletePhase}>
               Supprimer
             </Button>
           </DialogFooter>
