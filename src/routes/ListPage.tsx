@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@clerk/clerk-react';
 import { listBuildOrders } from '@/lib/api';
 import type { BuildOrder, GameMode } from '@/lib/types';
-import { civFlag } from '@/lib/civs';
+import { CivFlag } from '@/components/CivFlag';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -267,7 +267,7 @@ export function ListPage() {
               <Card className="h-full transition-colors hover:bg-muted/50">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <span aria-hidden="true">{civFlag(buildOrder.civ)}</span>
+                    <CivFlag civ={buildOrder.civ} size="sm" />
                     {buildOrder.civ}
                   </CardTitle>
                   <CardDescription className="capitalize">{buildOrder.sourceType}</CardDescription>

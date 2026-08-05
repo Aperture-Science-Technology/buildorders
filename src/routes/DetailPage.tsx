@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@clerk/clerk-react';
 import { getBuildOrder, deleteBuildOrder } from '@/lib/api';
 import type { BuildOrder, Visibility } from '@/lib/types';
-import { civFlag } from '@/lib/civs';
+import { CivFlag } from '@/components/CivFlag';
 import { BuildOrderFlow } from '@/components/BuildOrderFlow';
 import { BuildOrderEditor } from '@/components/BuildOrderEditor';
 import { Scenarios } from '@/components/Scenarios';
@@ -113,7 +113,7 @@ export function DetailPage() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-2">
           <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
-            <span aria-hidden="true">{civFlag(buildOrder.civ)}</span>
+            <CivFlag civ={buildOrder.civ} />
             {buildOrder.civ}
           </h1>
           <div className="flex flex-wrap gap-2">

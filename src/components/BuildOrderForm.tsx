@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import type { BuildOrder, Action, GameMode, MatchupNote, Phase, Visibility } from '@/lib/types';
 import { parseBuildOrderUrl, type BuildOrderInput } from '@/lib/api';
 import { VISIBILITY_OPTIONS } from '@/components/VisibilityBadge';
-import { CIV_NAMES, civFlag } from '@/lib/civs';
+import { CIV_NAMES } from '@/lib/civs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -330,9 +330,7 @@ export function BuildOrderForm({
             />
             <datalist id="civ-suggestions">
               {CIV_NAMES.map((name) => (
-                <option key={name} value={name}>
-                  {civFlag(name)} {name}
-                </option>
+                <option key={name} value={name} />
               ))}
             </datalist>
           </div>
