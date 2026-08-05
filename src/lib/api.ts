@@ -31,6 +31,9 @@ interface BuildOrderRow {
   difficulty: number | null;
   layout: Record<string, { x: number; y: number }> | null;
   visibility: Visibility | null;
+  view_count: number | null;
+  like_count: number | null;
+  liked?: boolean | null;
 }
 
 function mapRowToBuildOrder(row: BuildOrderRow): BuildOrder {
@@ -53,6 +56,9 @@ function mapRowToBuildOrder(row: BuildOrderRow): BuildOrder {
     difficulty: row.difficulty ?? undefined,
     layout: row.layout ?? undefined,
     visibility: row.visibility ?? undefined,
+    viewCount: row.view_count ?? undefined,
+    likeCount: row.like_count ?? undefined,
+    liked: row.liked ?? false,
   };
 }
 
@@ -110,23 +116,28 @@ export interface ListBuildOrdersOptions {
   mine?: boolean;
   public?: boolean;
   token?: string;
+  sort?: 'recent' | 'views' | 'likes';
 }
 
 export async function listBuildOrders(
   options: ListBuildOrdersOptions = {},
 ): Promise<BuildOrder[]> {
-  const { mine, public: onlyPublic, token } = options;
+  const { mine, public: onlyPublic, token, sort } = options;
 
   // No args (no token) => public-only, so anonymous visitors keep working.
   // Token + mine => caller's own builds. Token, no mine/public => mixed list.
-  let query: Record<string, string> | undefined;
+  let query: Record<string, string> = {};
   if (mine) {
     query = { mine: 'true' };
   } else if (onlyPublic || !token) {
     query = { public: 'true' };
   }
+  if (sort) query = { ...query, sort };
 
-  const rows = await edgeCall<BuildOrderRow[]>('build-orders', { query, token });
+  const rows = await edgeCall<BuildOrderRow[]>('build-orders', {
+    query: Object.keys(query).length > 0 ? query : undefined,
+    token,
+  });
   return rows.map(mapRowToBuildOrder);
 }
 
@@ -218,6 +229,27 @@ export function updateBuildOrder(
 
 export async function deleteBuildOrder(id: string, token: string): Promise<void> {
   await edgeCall<unknown>('build-orders', { method: 'DELETE', token, body: { id } });
+}
+
+export interface LikeResult {
+  liked: boolean;
+  like_count: number;
+}
+
+export function likeBuild(token: string, buildId: string): Promise<LikeResult> {
+  return edgeCall<LikeResult>('build-orders', {
+    method: 'POST',
+    token,
+    body: { like: { build_id: buildId } },
+  });
+}
+
+export function unlikeBuild(token: string, buildId: string): Promise<LikeResult> {
+  return edgeCall<LikeResult>('build-orders', {
+    method: 'DELETE',
+    token,
+    body: { build_id: buildId },
+  });
 }
 
 export function listMyGuilds(token: string): Promise<Guild[]> {
