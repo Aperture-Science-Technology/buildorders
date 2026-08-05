@@ -58,6 +58,18 @@ export interface Action {
   kind?: 'build' | 'research' | 'train' | 'gather' | 'tech' | 'age-up';
   dependsOn?: string[];
   iconId?: string;
+  /** Condition simple affichée en badge : « Si contre cavaliers précoces » */
+  condition?: string;
+  /** Si présent, cette action est une DÉCISION : les branches sont des chemins alternatifs */
+  branches?: ActionBranch[];
+}
+
+export interface ActionBranch {
+  id?: string;
+  /** Condition de la branche : « Si cavaliers précoces », « Sinon », « Par défaut » */
+  condition: string;
+  /** Actions de cette branche (même structure que Action) */
+  actions: Action[];
 }
 
 export interface Scenario {
