@@ -6,6 +6,7 @@ import { ListPage } from '@/routes/ListPage';
 import { DetailPage } from '@/routes/DetailPage';
 import { NewPage } from '@/routes/NewPage';
 import { EditPage } from '@/routes/EditPage';
+import { PlayPage } from '@/routes/PlayPage';
 
 const CLERK_PUBLISHABLE_KEY = import.meta.env.PUBLIC_CLERK_PUBLISHABLE_KEY;
 
@@ -31,6 +32,7 @@ export function App() {
               <Route path="/build/:id" element={<DetailPage />} />
               <Route path="/new" element={<NewPage />} />
               <Route path="/edit/:id" element={<EditPage />} />
+              <Route path="/play/:id" element={<PlayPage />} />
             </Routes>
           </main>
         </div>
