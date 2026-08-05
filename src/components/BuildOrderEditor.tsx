@@ -320,6 +320,7 @@ function buildEditorElements(
       selectable: false,
     });
 
+    let previousActionId: string | null = null;
     phase.actions.forEach((action, actionIndex) => {
       const id = action.id ?? generateActionId();
       const defaultPosition = { x, y: actionIndex * ROW_HEIGHT + ROW_Y_OFFSET };
@@ -337,6 +338,18 @@ function buildEditorElements(
         },
         draggable: true,
       });
+
+      if (!action.dependsOn?.length && previousActionId) {
+        edges.push({
+          id: `${previousActionId}->${id}`,
+          source: previousActionId,
+          target: id,
+          type: 'smoothstep',
+          animated: false,
+          data: { auto: true },
+        });
+      }
+      previousActionId = id;
     });
   });
 
@@ -405,6 +418,7 @@ function nodesToPhases(nodes: Node[], edges: Edge[], originalPhases: Phase[]): P
 
   const dependsOnByTarget = new Map<string, string[]>();
   for (const edge of edges) {
+    if (edge.data?.auto) continue;
     if (!actionIds.has(edge.source) || !actionIds.has(edge.target)) continue;
     const list = dependsOnByTarget.get(edge.target) ?? [];
     if (!list.includes(edge.source)) list.push(edge.source);

@@ -20,6 +20,11 @@ import buildingsStoneMiningCamp from '@/assets/game/buildings_stone-mining-camp.
 import buildingsTower1 from '@/assets/game/buildings_tower-1.png';
 import buildingsTownCenter1 from '@/assets/game/buildings_town-center-1.png';
 
+import resourcesFoodGather from '@/assets/game/resources_food-gather.png';
+import resourcesGoldGather from '@/assets/game/resources_gold-gather.png';
+import resourcesStoneGather from '@/assets/game/resources_stone-gather.png';
+import resourcesWoodGather from '@/assets/game/resources_wood-gather.png';
+
 import technologiesAgriculture3 from '@/assets/game/technologies_agriculture-3.png';
 import technologiesBodkinPoint from '@/assets/game/technologies_bodkin-point.png';
 import technologiesCollectiveHunting1 from '@/assets/game/technologies_collective-hunting-1.png';
@@ -82,6 +87,11 @@ export const GAME_ICONS: GameIconDef[] = [
   { id: 'buildings_stone-mining-camp', category: 'building', label: 'Stone Mining Camp', src: buildingsStoneMiningCamp.src },
   { id: 'buildings_tower-1', category: 'building', label: 'Tower', src: buildingsTower1.src },
   { id: 'buildings_town-center-1', category: 'building', label: 'Town Center', src: buildingsTownCenter1.src },
+  // resources
+  { id: 'resources_food-gather', category: 'resource', label: 'Food', src: resourcesFoodGather.src },
+  { id: 'resources_wood-gather', category: 'resource', label: 'Wood', src: resourcesWoodGather.src },
+  { id: 'resources_gold-gather', category: 'resource', label: 'Gold', src: resourcesGoldGather.src },
+  { id: 'resources_stone-gather', category: 'resource', label: 'Stone', src: resourcesStoneGather.src },
   // technologies
   { id: 'technologies_agriculture-3', category: 'tech', label: 'Agriculture', src: technologiesAgriculture3.src },
   { id: 'technologies_bodkin-point', category: 'tech', label: 'Bodkin Point', src: technologiesBodkinPoint.src },
@@ -129,9 +139,83 @@ export function iconDef(id: string): GameIconDef | undefined {
   return GAME_ICONS.find((icon) => icon.id === id);
 }
 
+/** Ordered keyword → icon id pairs; more specific keywords must precede their substrings. */
+const DESCRIPTION_KEYWORD_ICONS: [string, string][] = [
+  // resources
+  ['food', 'resources_food-gather'],
+  ['wood', 'resources_wood-gather'],
+  ['gold', 'resources_gold-gather'],
+  ['stone', 'resources_stone-gather'],
+  // units
+  ['villager', 'units_villager-1'],
+  ['vills', 'units_villager-1'],
+  ['vill', 'units_villager-1'],
+  ['professional scouts', 'technologies_professional-scouts-2'],
+  ['scout', 'units_scout-1'],
+  ['spearman', 'units_spearman-1'],
+  ['man-at-arms', 'units_man-at-arms-1'],
+  ['maa', 'units_man-at-arms-1'],
+  ['crossbow', 'units_crossbowman-1'],
+  ['archery', 'buildings_archery-range-2'],
+  ['archer', 'units_archer-2'],
+  ['knight', 'units_knight-1'],
+  ['lancer', 'units_lancer-1'],
+  ['horseman', 'units_horseman-1'],
+  ['mangonel', 'units_mangonel-1'],
+  ['trebuchet', 'units_trebuchet-3'],
+  ['ram', 'units_battering-ram-1'],
+  ['springald', 'units_springald-1'],
+  ['camel', 'units_camel-rider-3'],
+  ['handcannoneer', 'units_handcannoneer-1'],
+  ['handgun', 'units_handcannoneer-1'],
+  ['longbow', 'units_longbowman-2'],
+  ['militia', 'units_militia-1'],
+  // buildings
+  ['house', 'buildings_house-1'],
+  ['mill', 'buildings_mill-1'],
+  ['farm', 'buildings_farm-1'],
+  ['lumber', 'buildings_lumber-camp-1'],
+  ['mining camp', 'buildings_mining-camp-1'],
+  ['barracks', 'buildings_barracks-1'],
+  ['stable', 'buildings_stable-1'],
+  ['blacksmith', 'buildings_blacksmith-2'],
+  ['market', 'buildings_market-2'],
+  ['dock', 'buildings_dock-1'],
+  ['outpost', 'buildings_outpost-1'],
+  ['town center', 'buildings_town-center-1'],
+  ['tc', 'buildings_town-center-1'],
+  ['keep', 'buildings_keep-3'],
+  ['siege workshop', 'buildings_siege-workshop-3'],
+  ['tower', 'buildings_tower-1'],
+  // technologies
+  ['wheelbarrow', 'technologies_wheelbarrow-1'],
+  ['forge', 'technologies_forging'],
+  ['agriculture', 'technologies_agriculture-3'],
+  ['crop', 'technologies_agriculture-3'],
+  ['survival', 'technologies_survival-techniques-1'],
+  ['bodkin', 'technologies_bodkin-point'],
+  ['steeled arrow', 'technologies_steeled-arrow-2'],
+  ['platecutter', 'technologies_platecutter-point'],
+  ['iron undermesh', 'technologies_iron-undermesh-2'],
+  ['hunting', 'technologies_hunting-tradition-2'],
+];
+
+export function iconIdFromDescription(description: string): string | undefined {
+  const normalized = description.toLowerCase();
+  for (const [keyword, iconId] of DESCRIPTION_KEYWORD_ICONS) {
+    if (normalized.includes(keyword)) return iconId;
+  }
+  return undefined;
+}
+
 export function iconForAction(action: Action): string {
   if (action.iconId) {
     const def = iconDef(action.iconId);
+    if (def) return def.src;
+  }
+  const inferredId = iconIdFromDescription(action.description);
+  if (inferredId) {
+    const def = iconDef(inferredId);
     if (def) return def.src;
   }
   if (action.kind) {
