@@ -7,6 +7,12 @@ export interface MatchupNote {
   note: string;
 }
 
+export interface BuildOwner {
+  id: string;
+  display_name: string;
+  avatar_url: string | null;
+}
+
 export interface BuildOrder {
   id: string;
   civ: string;
@@ -17,6 +23,7 @@ export interface BuildOrder {
   notes?: string;
   scenarios?: Scenario[];
   ownerId?: string;
+  owner?: BuildOwner;
   createdAt?: string;
   gameModes?: GameMode[];
   strengths?: string[];

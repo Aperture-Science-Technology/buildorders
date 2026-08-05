@@ -19,6 +19,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { VisibilityBadge, VISIBILITY_OPTIONS } from '@/components/VisibilityBadge';
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { ownerDisplayName, ownerInitial } from '@/lib/format';
 import { PlusIcon, LayersIcon, StarIcon } from 'lucide-react';
 
 const TYPE_LABELS: Record<BuildOrder['type'], string> = {
@@ -298,6 +300,17 @@ export function ListPage() {
                           }
                         />
                       ))}
+                    </div>
+                  )}
+                  {buildOrder.owner && (
+                    <div className="flex items-center gap-2">
+                      <Avatar className="size-5">
+                        <AvatarImage src={buildOrder.owner.avatar_url ?? undefined} />
+                        <AvatarFallback>{ownerInitial(buildOrder.owner)}</AvatarFallback>
+                      </Avatar>
+                      <span className="text-xs text-muted-foreground">
+                        {ownerDisplayName(buildOrder.owner)}
+                      </span>
                     </div>
                   )}
                 </CardContent>

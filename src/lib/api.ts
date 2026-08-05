@@ -1,5 +1,6 @@
 import type {
   BuildOrder,
+  BuildOwner,
   BuildShare,
   GameMode,
   Guild,
@@ -21,6 +22,7 @@ interface BuildOrderRow {
   notes: string | null;
   scenarios: Scenario[] | null;
   owner_id: string | null;
+  owner?: BuildOwner | null;
   created_at: string;
   game_modes: GameMode[] | null;
   strengths: string[] | null;
@@ -42,6 +44,7 @@ function mapRowToBuildOrder(row: BuildOrderRow): BuildOrder {
     notes: row.notes ?? undefined,
     scenarios: row.scenarios ?? undefined,
     ownerId: row.owner_id ?? undefined,
+    owner: row.owner ?? undefined,
     createdAt: row.created_at,
     gameModes: row.game_modes ?? undefined,
     strengths: row.strengths ?? undefined,
