@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Action, BuildOrder, Phase } from '@/lib/types';
 import { AGE_LABELS, formatTime } from '@/lib/format';
-import { civFlag } from '@/lib/civs';
+import { CivFlag } from '@/components/CivFlag';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -166,7 +166,7 @@ export function BuildOrderPlayer({ buildOrder }: BuildOrderPlayerProps) {
       <div className="flex min-h-[70vh] flex-col items-center justify-center gap-6 text-center">
         <h1 className="text-4xl font-semibold">Build terminé</h1>
         <p className="text-muted-foreground">
-          <span aria-hidden="true">{civFlag(buildOrder.civ)}</span> {buildOrder.civ} ·{' '}
+          <CivFlag civ={buildOrder.civ} className="inline-block align-text-bottom" /> {buildOrder.civ} ·{' '}
           {formatTime(duration)}
         </p>
         <div className="flex gap-3">
@@ -193,7 +193,7 @@ export function BuildOrderPlayer({ buildOrder }: BuildOrderPlayerProps) {
     <div className="flex min-h-[80vh] flex-col gap-8">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span aria-hidden="true">{civFlag(buildOrder.civ)}</span>
+          <CivFlag civ={buildOrder.civ} size="sm" />
           <span className="text-sm font-medium text-muted-foreground">{buildOrder.civ}</span>
           <Badge variant="outline">{buildOrder.type}</Badge>
         </div>

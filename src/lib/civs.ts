@@ -1,23 +1,51 @@
-// Civs confirmed as of this codebase's knowledge cutoff (Jan 2026). AOE4 is
-// reported to have 23 playable civs by mid-2026, but the ~7 newest DLC/season
-// civs beyond this list could not be verified — see the caller's note.
+import abbasidDynasty from '@/assets/flags/ABBASID_DYNASTY.png';
+import ayyubids from '@/assets/flags/AYYUBIDS.png';
+import byzantines from '@/assets/flags/BYZANTINES.png';
+import chinese from '@/assets/flags/CHINESE.png';
+import delhiSultanate from '@/assets/flags/DELHI_SULTANATE.png';
+import english from '@/assets/flags/ENGLISH.png';
+import french from '@/assets/flags/FRENCH.png';
+import goldenHorde from '@/assets/flags/GOLDEN_HORDE.png';
+import holyRomanEmpire from '@/assets/flags/HOLY_ROMAN_EMPIRE.png';
+import houseOfLancaster from '@/assets/flags/HOUSE_OF_LANCASTER.png';
+import japanese from '@/assets/flags/JAPANESE.png';
+import jeanneDarc from '@/assets/flags/JEANNE_DARC.png';
+import jinDynasty from '@/assets/flags/JIN_DYNASTY.png';
+import knightsTemplar from '@/assets/flags/KNIGHTS_TEMPLAR.png';
+import macedonianDynasty from '@/assets/flags/MACEDONIAN_DYNASTY.png';
+import malians from '@/assets/flags/MALIANS.png';
+import mongols from '@/assets/flags/MONGOLS.png';
+import orderOfTheDragon from '@/assets/flags/ORDER_OF_THE_DRAGON.png';
+import ottomans from '@/assets/flags/OTTOMANS.png';
+import rus from '@/assets/flags/RUS.png';
+import sengokuDaimyo from '@/assets/flags/SENGOKU_DAIMYO.png';
+import tughlaqDynasty from '@/assets/flags/TUGHLAQ_DYNASTY.png';
+import zhuXisLegacy from '@/assets/flags/ZHU_XIS_LEGACY.png';
+
 export const CIV_FLAGS: Record<string, string> = {
-  'Abbasid Dynasty': '🇸🇦',
-  Ayyubids: '🇪🇬',
-  Byzantines: '🇬🇷',
-  Chinese: '🇨🇳',
-  'Delhi Sultanate': '🇮🇳',
-  English: '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
-  French: '🇫🇷',
-  'Holy Roman Empire': '🇩🇪',
-  Japanese: '🇯🇵',
-  "Jeanne d'Arc": '⚜️',
-  Malians: '🇲🇱',
-  Mongols: '🇲🇳',
-  'Order of the Dragon': '🐉',
-  Ottomans: '🇹🇷',
-  Rus: '🇷🇺',
-  "Zhu Xi's Legacy": '📜',
+  'Abbasid Dynasty': abbasidDynasty.src,
+  Ayyubids: ayyubids.src,
+  Byzantines: byzantines.src,
+  Chinese: chinese.src,
+  'Delhi Sultanate': delhiSultanate.src,
+  English: english.src,
+  French: french.src,
+  'Golden Horde': goldenHorde.src,
+  'Holy Roman Empire': holyRomanEmpire.src,
+  'House of Lancaster': houseOfLancaster.src,
+  Japanese: japanese.src,
+  "Jeanne d'Arc": jeanneDarc.src,
+  'Jin Dynasty': jinDynasty.src,
+  'Knights Templar': knightsTemplar.src,
+  'Macedonian Dynasty': macedonianDynasty.src,
+  Malians: malians.src,
+  Mongols: mongols.src,
+  'Order of the Dragon': orderOfTheDragon.src,
+  Ottomans: ottomans.src,
+  Rus: rus.src,
+  'Sengoku Daimyo': sengokuDaimyo.src,
+  'Tughlaq Dynasty': tughlaqDynasty.src,
+  "Zhu Xi's Legacy": zhuXisLegacy.src,
 };
 
 export const CIV_NAMES: string[] = Object.keys(CIV_FLAGS).sort((a, b) => a.localeCompare(b));
@@ -30,11 +58,23 @@ const ALIASES: Record<string, string> = {
   zhuxi: "Zhu Xi's Legacy",
   'zhu xi': "Zhu Xi's Legacy",
   zhuxislegacy: "Zhu Xi's Legacy",
+  'zhu xis legacy': "Zhu Xi's Legacy",
   jeanne: "Jeanne d'Arc",
   jeannedarc: "Jeanne d'Arc",
   ootd: 'Order of the Dragon',
   otd: 'Order of the Dragon',
   orderofthedragon: 'Order of the Dragon',
+  dragon: 'Order of the Dragon',
+  templar: 'Knights Templar',
+  templars: 'Knights Templar',
+  lancaster: 'House of Lancaster',
+  macedonian: 'Macedonian Dynasty',
+  macedonians: 'Macedonian Dynasty',
+  sengoku: 'Sengoku Daimyo',
+  tughlaq: 'Tughlaq Dynasty',
+  horde: 'Golden Horde',
+  goldenhorde: 'Golden Horde',
+  jin: 'Jin Dynasty',
 };
 
 function normalize(value: string): string {
@@ -55,10 +95,8 @@ for (const [alias, canonical] of Object.entries(ALIASES)) {
   if (flag) FLAG_LOOKUP.set(normalize(alias), flag);
 }
 
-const FALLBACK_FLAG = '🎮';
-
 export function civFlag(civ: string | undefined | null): string {
-  if (!civ || !civ.trim()) return FALLBACK_FLAG;
+  if (!civ || !civ.trim()) return '';
   const key = normalize(civ);
 
   const direct = FLAG_LOOKUP.get(key);
@@ -68,6 +106,5 @@ export function civFlag(civ: string | undefined | null): string {
     if (key.includes(name) || name.includes(key)) return flag;
   }
 
-  const firstLetter = civ.trim().charAt(0).toUpperCase();
-  return firstLetter || FALLBACK_FLAG;
+  return '';
 }
