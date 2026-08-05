@@ -22,6 +22,7 @@ import type { Action, BuildOrder, Phase } from '@/lib/types';
 import { updateBuildOrder } from '@/lib/api';
 import { AGE_LABELS, formatTime } from '@/lib/format';
 import { iconForAction } from '@/lib/gameIcons';
+import { cn } from '@/lib/utils';
 import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -33,6 +34,8 @@ import {
   TrendingUpIcon,
   DotIcon,
   Link2Icon,
+  GitBranchIcon,
+  SplitIcon,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -55,13 +58,20 @@ interface ActionNodeData extends Record<string, unknown> {
   kind?: Action['kind'];
   iconId?: string;
   hasDependency?: boolean;
+  condition?: string;
+  isDecision?: boolean;
 }
 
 function ActionNode({ data }: NodeProps<Node<ActionNodeData, 'action'>>) {
   const Icon = data.kind ? ACTION_KIND_ICONS[data.kind] : DotIcon;
   const gameIconSrc = iconForAction({ description: data.description, at: data.at, kind: data.kind, iconId: data.iconId });
   return (
-    <div className="w-[280px] rounded-lg border bg-card text-card-foreground shadow-sm">
+    <div
+      className={cn(
+        'w-[280px] rounded-lg border bg-card text-card-foreground shadow-sm',
+        data.isDecision && 'border-2 border-amber-400/60',
+      )}
+    >
       <Handle type="target" position={Position.Top} className="!bg-muted-foreground" />
       <div className="flex items-start gap-3 p-3">
         <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted">
@@ -72,9 +82,23 @@ function ActionNode({ data }: NodeProps<Node<ActionNodeData, 'action'>>) {
           )}
         </div>
         <div className="flex flex-1 flex-col gap-1">
-          <span className="font-mono text-xs text-muted-foreground">
-            {formatTime(data.at)}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-xs text-muted-foreground">
+              {formatTime(data.at)}
+            </span>
+            {data.isDecision && (
+              <Badge variant="outline" className="gap-1 text-[10px]">
+                <SplitIcon className="size-3" />
+                Décision
+              </Badge>
+            )}
+          </div>
+          {data.condition && (
+            <Badge variant="outline" className="w-fit gap-1 text-[10px]">
+              <GitBranchIcon className="size-3" />
+              {data.condition}
+            </Badge>
+          )}
           <span className="text-sm font-medium leading-snug">{data.description}</span>
         </div>
         {data.hasDependency && (
