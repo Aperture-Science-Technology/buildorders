@@ -168,10 +168,71 @@ function toRow(payload: BuildOrderPayload): Record<string, unknown> | { error: s
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 200;
 
-async function ensureProfile(userId: string): Promise<void> {
-  const { error } = await supabaseAdmin
+interface OwnerInfo {
+  id: string;
+  display_name: string;
+  avatar_url: string | null;
+}
+
+// Joins the creator's profile onto build rows. Fail-open: a join error must
+// not block reads of the builds themselves.
+async function attachOwners(rows: Record<string, unknown>[]): Promise<Record<string, unknown>[]> {
+  const ownerIds = Array.from(new Set(rows.map((r) => r.owner_id).filter(Boolean))) as string[];
+  if (ownerIds.length === 0) return rows;
+  const { data, error } = await supabaseAdmin
     .from('profiles')
-    .upsert({ id: userId, display_name: '' }, { onConflict: 'id', ignoreDuplicates: true });
+    .select('id, display_name, avatar_url')
+    .in('id', ownerIds);
+  if (error) return rows;
+  const byId = new Map((data ?? []).map((p) => [p.id, p] as [string, OwnerInfo]));
+  return rows.map((r) => ({ ...r, owner: r.owner_id ? (byId.get(r.owner_id as string) ?? null) : null }));
+}
+
+interface ClerkUserInfo {
+  displayName: string;
+  avatarUrl: string | null;
+}
+
+async function fetchClerkUserInfo(userId: string): Promise<ClerkUserInfo | null> {
+  if (!CLERK_SECRET_KEY) return null;
+  try {
+    const response = await fetch(`https://api.clerk.com/v1/users/${userId}`, {
+      headers: { Authorization: `Bearer ${CLERK_SECRET_KEY}` },
+    });
+    if (!response.ok) return null;
+    const user = await response.json();
+    const firstName = typeof user.first_name === 'string' ? user.first_name : '';
+    const lastName = typeof user.last_name === 'string' ? user.last_name : '';
+    const displayName = [firstName, lastName].filter(Boolean).join(' ').trim();
+    const avatarUrl = typeof user.image_url === 'string' ? user.image_url : null;
+    return { displayName, avatarUrl };
+  } catch (err) {
+    console.error('Clerk user fetch failed:', err instanceof Error ? err.message : String(err));
+    return null;
+  }
+}
+
+async function ensureProfile(userId: string): Promise<void> {
+  // Only fetch Clerk info for brand-new profiles: an existing row may carry a
+  // display_name the user customized themselves, which must never be overwritten.
+  const { data: existing, error: existingError } = await supabaseAdmin
+    .from('profiles')
+    .select('id')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (existingError) {
+    console.error('Profile lookup failed:', existingError.message);
+    return;
+  }
+  if (existing) return;
+
+  const clerkInfo = await fetchClerkUserInfo(userId);
+
+  const { error } = await supabaseAdmin.from('profiles').upsert(
+    { id: userId, display_name: clerkInfo?.displayName ?? '', avatar_url: clerkInfo?.avatarUrl ?? null },
+    { onConflict: 'id', ignoreDuplicates: true },
+  );
   if (error) {
     console.error('Profile upsert failed:', error.message);
   }
@@ -278,7 +339,8 @@ async function handleGet(req: Request, userId: string | null): Promise<Response>
       if (!data || !(await canReadBuild(data, userId))) {
         return json({ error: 'Not found' }, 404);
       }
-      return json(data, 200);
+      const [withOwner] = await attachOwners([data]);
+      return json(withOwner, 200);
     }
 
     const limit = parseLimit(searchParams);
@@ -294,7 +356,7 @@ async function handleGet(req: Request, userId: string | null): Promise<Response>
         .order('created_at', { ascending: false })
         .limit(limit);
       if (error) return json({ error: error.message }, 500);
-      return json(data, 200);
+      return json(await attachOwners(data ?? []), 200);
     }
 
     if (publicOnly) {
@@ -305,7 +367,7 @@ async function handleGet(req: Request, userId: string | null): Promise<Response>
         .order('created_at', { ascending: false })
         .limit(limit);
       if (error) return json({ error: error.message }, 500);
-      return json(data, 200);
+      return json(await attachOwners(data ?? []), 200);
     }
 
     if (!userId) {
@@ -317,7 +379,7 @@ async function handleGet(req: Request, userId: string | null): Promise<Response>
         .order('created_at', { ascending: false })
         .limit(limit);
       if (error) return json({ error: error.message }, 500);
-      return json(data, 200);
+      return json(await attachOwners(data ?? []), 200);
     }
 
     // Mixed list: public builds + the caller's own builds + builds shared with them.
@@ -364,7 +426,7 @@ async function handleGet(req: Request, userId: string | null): Promise<Response>
       .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
       .slice(0, limit);
 
-    return json(merged, 200);
+    return json(await attachOwners(merged), 200);
   } catch (err) {
     return json({ error: err instanceof Error ? err.message : 'Internal error' }, 500);
   }
@@ -421,7 +483,8 @@ Deno.serve(async (req: Request) => {
       .single();
 
     if (error) return json({ error: error.message }, 500);
-    return json(data, 201);
+    const [withOwner] = await attachOwners([data]);
+    return json(withOwner, 201);
   }
 
   // PATCH and DELETE both require an existing row owned by the caller.
@@ -456,5 +519,6 @@ Deno.serve(async (req: Request) => {
     .single();
 
   if (error) return json({ error: error.message }, 500);
-  return json(data, 200);
+  const [withOwner] = await attachOwners([data]);
+  return json(withOwner, 200);
 });

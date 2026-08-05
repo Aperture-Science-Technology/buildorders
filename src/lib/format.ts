@@ -1,7 +1,18 @@
+import type { BuildOwner } from './types';
+
 export function formatTime(seconds: number): string {
   const minutes = Math.floor(seconds / 60);
   const remainder = seconds % 60;
   return `${minutes}:${remainder.toString().padStart(2, '0')}`;
+}
+
+export function ownerDisplayName(owner?: BuildOwner): string {
+  return owner?.display_name?.trim() ? owner.display_name : 'Utilisateur inconnu';
+}
+
+export function ownerInitial(owner?: BuildOwner): string {
+  const name = ownerDisplayName(owner);
+  return name === 'Utilisateur inconnu' ? '?' : name.charAt(0).toUpperCase();
 }
 
 export const AGE_LABELS: Record<'dark' | 'feudal' | 'castle' | 'imperial', string> = {

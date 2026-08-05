@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Action, BuildOrder, Phase } from '@/lib/types';
-import { AGE_LABELS, formatTime } from '@/lib/format';
+import { AGE_LABELS, formatTime, ownerDisplayName, ownerInitial } from '@/lib/format';
 import { CivFlag } from '@/components/CivFlag';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import {
   HammerIcon,
   FlaskConicalIcon,
@@ -169,6 +170,15 @@ export function BuildOrderPlayer({ buildOrder }: BuildOrderPlayerProps) {
           <CivFlag civ={buildOrder.civ} className="inline-block align-text-bottom" /> {buildOrder.civ} ·{' '}
           {formatTime(duration)}
         </p>
+        <div className="flex items-center gap-2">
+          <Avatar className="size-6">
+            <AvatarImage src={buildOrder.owner?.avatar_url ?? undefined} />
+            <AvatarFallback>{ownerInitial(buildOrder.owner)}</AvatarFallback>
+          </Avatar>
+          <span className="text-sm text-muted-foreground">
+            Créé par {ownerDisplayName(buildOrder.owner)}
+          </span>
+        </div>
         <div className="flex gap-3">
           <Button onClick={handleRestart}>
             <RotateCcwIcon />

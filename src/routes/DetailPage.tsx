@@ -15,6 +15,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { ownerDisplayName, ownerInitial } from '@/lib/format';
 import {
   Dialog,
   DialogContent,
@@ -125,6 +127,15 @@ export function DetailPage() {
             >
               Source : {buildOrder.sourceType}
             </Badge>
+          </div>
+          <div className="flex items-center gap-2">
+            <Avatar className="size-6">
+              <AvatarImage src={buildOrder.owner?.avatar_url ?? undefined} />
+              <AvatarFallback>{ownerInitial(buildOrder.owner)}</AvatarFallback>
+            </Avatar>
+            <span className="text-sm text-muted-foreground">
+              Créé par {ownerDisplayName(buildOrder.owner)}
+            </span>
           </div>
         </div>
 
