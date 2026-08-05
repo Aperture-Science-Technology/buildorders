@@ -288,13 +288,25 @@ interface EditDraft {
   kind: NonNullable<Action['kind']> | 'none';
 }
 
+const DEFAULT_DRAFT_PHASES: Phase[] = [{ age: 'dark', timeStart: 0, actions: [] }];
+
 interface BuildOrderEditorProps {
-  buildOrder: BuildOrder;
-  getToken: () => Promise<string | null>;
+  buildOrder?: BuildOrder;
+  initialPhases?: Phase[];
+  onPhasesChange?: (phases: Phase[]) => void;
+  getToken?: () => Promise<string | null>;
   onSaved?: (updated: BuildOrder) => void;
+  heightClassName?: string;
 }
 
-export function BuildOrderEditor({ buildOrder, getToken, onSaved }: BuildOrderEditorProps) {
+export function BuildOrderEditor({
+  buildOrder,
+  initialPhases,
+  onPhasesChange,
+  getToken,
+  onSaved,
+  heightClassName = 'h-[600px]',
+}: BuildOrderEditorProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
@@ -305,6 +317,14 @@ export function BuildOrderEditor({ buildOrder, getToken, onSaved }: BuildOrderEd
   useEffect(() => {
     nodesRef.current = nodes;
   }, [nodes]);
+
+  const latestPhasesRef = useRef<Phase[]>(
+    buildOrder?.phases ?? (initialPhases?.length ? initialPhases : DEFAULT_DRAFT_PHASES),
+  );
+
+  function originalPhasesSource(): Phase[] {
+    return buildOrder ? buildOrder.phases : latestPhasesRef.current;
+  }
 
   function requestDelete(id: string) {
     setDeleteTargetId(id);
@@ -323,7 +343,7 @@ export function BuildOrderEditor({ buildOrder, getToken, onSaved }: BuildOrderEd
   }
 
   function handleAddAction(phaseIndex: number) {
-    const phases = nodesToPhases(nodesRef.current, buildOrder.phases);
+    const phases = nodesToPhases(nodesRef.current, originalPhasesSource());
     const phase = phases[phaseIndex];
     if (!phase) return;
     const lastAction = phase.actions[phase.actions.length - 1];
@@ -347,7 +367,7 @@ export function BuildOrderEditor({ buildOrder, getToken, onSaved }: BuildOrderEd
   function confirmDelete() {
     if (!deleteTargetId) return;
     const remainingNodes = nodesRef.current.filter((node) => node.id !== deleteTargetId);
-    const phases = nodesToPhases(remainingNodes, buildOrder.phases);
+    const phases = nodesToPhases(remainingNodes, originalPhasesSource());
     const rebuilt = buildEditorElements(phases, handlers);
     setNodes(rebuilt.nodes);
     setEdges(rebuilt.edges);
@@ -387,7 +407,7 @@ export function BuildOrderEditor({ buildOrder, getToken, onSaved }: BuildOrderEd
   }
 
   function addPhase() {
-    const phases = nodesToPhases(nodesRef.current, buildOrder.phases);
+    const phases = nodesToPhases(nodesRef.current, originalPhasesSource());
     const lastPhase = phases[phases.length - 1];
     const timeStart = lastPhase ? lastPhase.timeStart + 60 : 0;
     const nextPhases: Phase[] = [...phases, { age: 'dark', timeStart, actions: [] }];
@@ -396,8 +416,14 @@ export function BuildOrderEditor({ buildOrder, getToken, onSaved }: BuildOrderEd
     setEdges(rebuilt.edges);
   }
 
-  function resetToBuildOrder() {
-    const rebuilt = buildEditorElements(buildOrder.phases, handlers, buildOrder.layout);
+  function resetFromSource() {
+    const source = buildOrder
+      ? buildOrder.phases
+      : initialPhases?.length
+        ? initialPhases
+        : DEFAULT_DRAFT_PHASES;
+    const rebuilt = buildEditorElements(source, handlers, buildOrder?.layout);
+    latestPhasesRef.current = source;
     setNodes(rebuilt.nodes);
     setEdges(rebuilt.edges);
     setEditDraft(null);
@@ -405,15 +431,24 @@ export function BuildOrderEditor({ buildOrder, getToken, onSaved }: BuildOrderEd
   }
 
   useEffect(() => {
-    resetToBuildOrder();
+    resetFromSource();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [buildOrder]);
+
+  useEffect(() => {
+    if (buildOrder) return;
+    const phases = nodesToPhases(nodes, latestPhasesRef.current);
+    latestPhasesRef.current = phases;
+    onPhasesChange?.(phases);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes]);
 
   const onConnect: OnConnect = (connection) => {
     setEdges((current) => addEdge({ ...connection, type: 'smoothstep' }, current));
   };
 
   async function handleSave() {
+    if (!buildOrder || !getToken) return;
     const currentNodes = nodesRef.current;
     const actionNodes = currentNodes.filter(
       (node): node is Node<ActionNodeData> => node.type === 'action',
@@ -438,7 +473,7 @@ export function BuildOrderEditor({ buildOrder, getToken, onSaved }: BuildOrderEd
         toast.error('Vous devez être connecté pour enregistrer.');
         return;
       }
-      const phases = nodesToPhases(currentNodes, buildOrder.phases);
+      const phases = nodesToPhases(currentNodes, originalPhasesSource());
       const updated = await updateBuildOrder(buildOrder.id, { phases }, token);
       toast.success('Build order enregistré.');
       onSaved?.(updated);
@@ -452,21 +487,25 @@ export function BuildOrderEditor({ buildOrder, getToken, onSaved }: BuildOrderEd
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className={`flex ${heightClassName} flex-col`}>
       <div className="mb-3 flex gap-2">
         <Button type="button" variant="outline" size="sm" onClick={addPhase}>
           <PlusIcon />
           Ajouter une phase
         </Button>
         <div className="flex-1" />
-        <Button type="button" variant="outline" size="sm" onClick={resetToBuildOrder}>
-          <XIcon />
-          Annuler
-        </Button>
-        <Button type="button" size="sm" onClick={handleSave} disabled={saving}>
-          <SaveIcon />
-          {saving ? 'Enregistrement…' : 'Enregistrer'}
-        </Button>
+        {buildOrder && (
+          <>
+            <Button type="button" variant="outline" size="sm" onClick={resetFromSource}>
+              <XIcon />
+              Annuler
+            </Button>
+            <Button type="button" size="sm" onClick={handleSave} disabled={saving}>
+              <SaveIcon />
+              {saving ? 'Enregistrement…' : 'Enregistrer'}
+            </Button>
+          </>
+        )}
       </div>
 
       <div className="min-h-0 flex-1">

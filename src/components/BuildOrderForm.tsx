@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from 'react';
 import { toast } from 'sonner';
-import type { BuildOrder, Action, GameMode, MatchupNote, Phase, Visibility } from '@/lib/types';
+import type { BuildOrder, GameMode, MatchupNote, Phase, Visibility } from '@/lib/types';
 import { parseBuildOrderUrl, type BuildOrderInput } from '@/lib/api';
 import { VISIBILITY_OPTIONS } from '@/components/VisibilityBadge';
 import { CIV_NAMES } from '@/lib/civs';
+import { BuildOrderEditor } from '@/components/BuildOrderEditor';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -36,22 +37,6 @@ const SOURCE_TYPE_OPTIONS: { value: BuildOrder['sourceType']; label: string }[] 
   { value: 'manual', label: 'Manuel' },
 ];
 
-const AGE_OPTIONS: { value: Phase['age']; label: string }[] = [
-  { value: 'dark', label: 'Dark Age' },
-  { value: 'feudal', label: 'Feudal Age' },
-  { value: 'castle', label: 'Castle Age' },
-  { value: 'imperial', label: 'Imperial Age' },
-];
-
-const ACTION_KIND_OPTIONS: { value: NonNullable<Action['kind']>; label: string }[] = [
-  { value: 'build', label: 'Build' },
-  { value: 'research', label: 'Research' },
-  { value: 'train', label: 'Train' },
-  { value: 'gather', label: 'Gather' },
-  { value: 'tech', label: 'Tech' },
-  { value: 'age-up', label: 'Age Up' },
-];
-
 const GAME_MODE_OPTIONS: { value: GameMode; label: string }[] = [
   { value: '1v1', label: '1v1' },
   { value: '2v2', label: '2v2' },
@@ -67,40 +52,6 @@ const DIFFICULTY_OPTIONS: { value: string; label: string }[] = [
   { value: '4', label: '4 - Difficile' },
   { value: '5', label: '5 - Très difficile' },
 ];
-
-interface ActionDraft {
-  at: string;
-  description: string;
-  kind: Action['kind'] | 'none';
-}
-
-interface PhaseDraft {
-  age: Phase['age'];
-  timeStart: string;
-  targetVillagers: string;
-  actions: ActionDraft[];
-}
-
-function phaseToDraft(phase: Phase): PhaseDraft {
-  return {
-    age: phase.age,
-    timeStart: String(phase.timeStart),
-    targetVillagers: phase.targetVillagers !== undefined ? String(phase.targetVillagers) : '',
-    actions: phase.actions.map((action) => ({
-      at: String(action.at),
-      description: action.description,
-      kind: action.kind ?? 'none',
-    })),
-  };
-}
-
-function emptyPhase(): PhaseDraft {
-  return { age: 'dark', timeStart: '0', targetVillagers: '', actions: [] };
-}
-
-function emptyAction(): ActionDraft {
-  return { at: '0', description: '', kind: 'none' };
-}
 
 interface BuildOrderFormProps {
   initial?: BuildOrder;
@@ -123,9 +74,8 @@ export function BuildOrderForm({
   );
   const [visibility, setVisibility] = useState<Visibility>(initial?.visibility ?? 'public');
   const [notes, setNotes] = useState(initial?.notes ?? '');
-  const [phases, setPhases] = useState<PhaseDraft[]>(
-    initial?.phases.length ? initial.phases.map(phaseToDraft) : [emptyPhase()],
-  );
+  const [phases, setPhases] = useState<Phase[]>(initial?.phases ?? []);
+  const [phasesResetKey, setPhasesResetKey] = useState(0);
   const [importUrl, setImportUrl] = useState('');
   const [importing, setImporting] = useState(false);
 
@@ -194,7 +144,8 @@ export function BuildOrderForm({
       setSourceUrl(parsed.sourceUrl);
       setSourceType(parsed.sourceType);
       setNotes(parsed.notes ?? '');
-      setPhases(parsed.phases.length ? parsed.phases.map(phaseToDraft) : [emptyPhase()]);
+      setPhases(parsed.phases);
+      setPhasesResetKey((key) => key + 1);
       setGameModes(parsed.gameModes ?? []);
       setStrengths(parsed.strengths ?? []);
       setWeaknesses(parsed.weaknesses ?? []);
@@ -210,49 +161,8 @@ export function BuildOrderForm({
     }
   }
 
-  function updatePhase(index: number, patch: Partial<PhaseDraft>) {
-    setPhases((prev) => prev.map((phase, i) => (i === index ? { ...phase, ...patch } : phase)));
-  }
-
-  function addPhase() {
-    setPhases((prev) => [...prev, emptyPhase()]);
-  }
-
-  function removePhase(index: number) {
-    setPhases((prev) => prev.filter((_, i) => i !== index));
-  }
-
-  function addAction(phaseIndex: number) {
-    setPhases((prev) =>
-      prev.map((phase, i) =>
-        i === phaseIndex ? { ...phase, actions: [...phase.actions, emptyAction()] } : phase,
-      ),
-    );
-  }
-
-  function updateAction(phaseIndex: number, actionIndex: number, patch: Partial<ActionDraft>) {
-    setPhases((prev) =>
-      prev.map((phase, i) =>
-        i === phaseIndex
-          ? {
-              ...phase,
-              actions: phase.actions.map((action, j) =>
-                j === actionIndex ? { ...action, ...patch } : action,
-              ),
-            }
-          : phase,
-      ),
-    );
-  }
-
-  function removeAction(phaseIndex: number, actionIndex: number) {
-    setPhases((prev) =>
-      prev.map((phase, i) =>
-        i === phaseIndex
-          ? { ...phase, actions: phase.actions.filter((_, j) => j !== actionIndex) }
-          : phase,
-      ),
-    );
+  function handlePhasesChange(nextPhases: Phase[]) {
+    setPhases(nextPhases);
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -277,16 +187,8 @@ export function BuildOrderForm({
       difficulty: difficulty === 'none' ? undefined : Number(difficulty),
       visibility,
       phases: phases.map((phase) => ({
-        age: phase.age,
-        timeStart: Number(phase.timeStart) || 0,
-        targetVillagers: phase.targetVillagers ? Number(phase.targetVillagers) : undefined,
-        actions: phase.actions
-          .filter((action) => action.description.trim().length > 0)
-          .map((action) => ({
-            at: Number(action.at) || 0,
-            description: action.description.trim(),
-            kind: action.kind === 'none' ? undefined : action.kind,
-          })),
+        ...phase,
+        actions: phase.actions.filter((action) => action.description.trim().length > 0),
       })),
     };
 
@@ -563,152 +465,19 @@ export function BuildOrderForm({
         </CardContent>
       </Card>
 
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Phases</h2>
-          <Button type="button" variant="outline" size="sm" onClick={addPhase}>
-            <PlusIcon />
-            Ajouter une phase
-          </Button>
-        </div>
-
-        {phases.map((phase, phaseIndex) => (
-          <Card key={phaseIndex}>
-            <CardHeader className="flex-row items-center justify-between">
-              <CardTitle>Phase {phaseIndex + 1}</CardTitle>
-              {phases.length > 1 && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => removePhase(phaseIndex)}
-                >
-                  <Trash2Icon />
-                </Button>
-              )}
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-3">
-                <div className="space-y-1.5">
-                  <Label>Âge</Label>
-                  <Select
-                    value={phase.age}
-                    onValueChange={(value) =>
-                      updatePhase(phaseIndex, { age: value as Phase['age'] })
-                    }
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Âge" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {AGE_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label>Début (secondes)</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={phase.timeStart}
-                    onChange={(event) =>
-                      updatePhase(phaseIndex, { timeStart: event.target.value })
-                    }
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label>Villageois cible</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={phase.targetVillagers}
-                    onChange={(event) =>
-                      updatePhase(phaseIndex, { targetVillagers: event.target.value })
-                    }
-                  />
-                </div>
-              </div>
-
-              <Separator />
-
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label>Actions</Label>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="xs"
-                    onClick={() => addAction(phaseIndex)}
-                  >
-                    <PlusIcon />
-                    Ajouter une action
-                  </Button>
-                </div>
-
-                {phase.actions.map((action, actionIndex) => (
-                  <div
-                    key={actionIndex}
-                    className="grid gap-2 sm:grid-cols-[5rem_1fr_9rem_auto] sm:items-center"
-                  >
-                    <Input
-                      type="number"
-                      min={0}
-                      aria-label="Instant (secondes)"
-                      placeholder="s"
-                      value={action.at}
-                      onChange={(event) =>
-                        updateAction(phaseIndex, actionIndex, { at: event.target.value })
-                      }
-                    />
-                    <Input
-                      aria-label="Description"
-                      placeholder="Description de l'action"
-                      value={action.description}
-                      onChange={(event) =>
-                        updateAction(phaseIndex, actionIndex, { description: event.target.value })
-                      }
-                    />
-                    <Select
-                      value={action.kind}
-                      onValueChange={(value) =>
-                        updateAction(phaseIndex, actionIndex, {
-                          kind: value as ActionDraft['kind'],
-                        })
-                      }
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">—</SelectItem>
-                        {ACTION_KIND_OPTIONS.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => removeAction(phaseIndex, actionIndex)}
-                    >
-                      <Trash2Icon />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Phases</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <BuildOrderEditor
+            key={phasesResetKey}
+            initialPhases={phases}
+            onPhasesChange={handlePhasesChange}
+            heightClassName="h-[500px]"
+          />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardFooter className="justify-end">
