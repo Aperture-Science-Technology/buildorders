@@ -6,11 +6,13 @@ import {
   MiniMap,
   Handle,
   Position,
+  MarkerType,
   addEdge,
   useNodesState,
   useEdgesState,
   type Node,
   type Edge,
+  type EdgeMouseHandler,
   type NodeProps,
   type NodeTypes,
   type OnConnect,
@@ -52,8 +54,76 @@ import {
   Trash2Icon,
   SaveIcon,
   XIcon,
+  Link2OffIcon,
+  ArrowDownUpIcon,
   type LucideIcon,
 } from 'lucide-react';
+
+const AGE_OPTIONS: { value: Phase['age']; label: string }[] = [
+  { value: 'dark', label: AGE_LABELS.dark },
+  { value: 'feudal', label: AGE_LABELS.feudal },
+  { value: 'castle', label: AGE_LABELS.castle },
+  { value: 'imperial', label: AGE_LABELS.imperial },
+];
+
+function generateActionId(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID().slice(0, 8);
+  return Math.random().toString(36).slice(2, 10);
+}
+
+/** Kahn-style topological sort with `at` as a tiebreaker among ready nodes; leftover ids on cycle. */
+function topologicalOrder(
+  items: { id: string; at: number; dependsOn: string[] }[],
+): { order: string[]; cyclic: string[] } {
+  const ids = new Set(items.map((item) => item.id));
+  const remaining = new Map(items.map((item) => [item.id, item]));
+  const order: string[] = [];
+
+  while (remaining.size > 0) {
+    const ready = [...remaining.values()].filter((item) =>
+      item.dependsOn.every((dep) => !ids.has(dep) || !remaining.has(dep)),
+    );
+    if (ready.length === 0) break;
+    ready.sort((a, b) => a.at - b.at || items.indexOf(a) - items.indexOf(b));
+    order.push(ready[0].id);
+    remaining.delete(ready[0].id);
+  }
+
+  return { order, cyclic: [...remaining.keys()] };
+}
+
+/** DFS cycle detection over the dependsOn graph; returns the cyclic chain of ids, or null. */
+function findDependencyCycle(items: { id: string; dependsOn: string[] }[]): string[] | null {
+  const dependsOnMap = new Map(items.map((item) => [item.id, item.dependsOn]));
+  const color = new Map<string, 1 | 2>();
+  const stack: string[] = [];
+  let cycle: string[] | null = null;
+
+  function visit(id: string) {
+    if (cycle) return;
+    color.set(id, 1);
+    stack.push(id);
+    for (const dep of dependsOnMap.get(id) ?? []) {
+      if (cycle) return;
+      if (!dependsOnMap.has(dep)) continue;
+      const state = color.get(dep);
+      if (state === 1) {
+        const idx = stack.indexOf(dep);
+        cycle = stack.slice(idx).concat(dep);
+        return;
+      }
+      if (state !== 2) visit(dep);
+    }
+    stack.pop();
+    color.set(id, 2);
+  }
+
+  for (const item of items) {
+    if (cycle) break;
+    if (!color.has(item.id)) visit(item.id);
+  }
+  return cycle;
+}
 
 const ACTION_KIND_ICONS: Record<NonNullable<Action['kind']>, LucideIcon> = {
   build: HammerIcon,
@@ -86,16 +156,20 @@ interface ActionNodeData extends Record<string, unknown> {
 }
 
 interface PhaseHeaderNodeData extends Record<string, unknown> {
+  title?: string;
   age: Phase['age'];
   timeStart: number;
+  targetVillagers?: number;
   phaseIndex: number;
   onAddAction: (phaseIndex: number) => void;
+  onEditHeader: (phaseIndex: number) => void;
 }
 
 interface NodeHandlers {
   onAddAction: (phaseIndex: number) => void;
   onEditAction: (id: string) => void;
   onDeleteAction: (id: string) => void;
+  onEditHeader: (phaseIndex: number) => void;
 }
 
 function ActionNode({ id, data }: NodeProps<Node<ActionNodeData, 'action'>>) {
@@ -136,7 +210,11 @@ function ActionNode({ id, data }: NodeProps<Node<ActionNodeData, 'action'>>) {
 
 function PhaseHeaderNode({ data }: NodeProps<Node<PhaseHeaderNodeData, 'phaseHeader'>>) {
   return (
-    <div className="flex w-[280px] flex-col items-start gap-2">
+    <div
+      className="flex w-[280px] flex-col items-start gap-2"
+      onDoubleClick={() => data.onEditHeader(data.phaseIndex)}
+    >
+      {data.title && <span className="text-sm font-semibold leading-snug">{data.title}</span>}
       <Badge>{AGE_LABELS[data.age]}</Badge>
       <span className="font-mono text-xs text-muted-foreground">{formatTime(data.timeStart)}</span>
       <Button
@@ -145,6 +223,7 @@ function PhaseHeaderNode({ data }: NodeProps<Node<PhaseHeaderNodeData, 'phaseHea
         size="sm"
         className="nodrag"
         onClick={() => data.onAddAction(data.phaseIndex)}
+        onDoubleClick={(event) => event.stopPropagation()}
       >
         <PlusIcon />
         Action
@@ -165,7 +244,6 @@ function buildEditorElements(
 ): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
-  let previousPhaseLastActionId: string | null = null;
 
   phases.forEach((phase, phaseIndex) => {
     const x = phaseIndex * COLUMN_WIDTH;
@@ -175,19 +253,20 @@ function buildEditorElements(
       type: 'phaseHeader',
       position: { x, y: 0 },
       data: {
+        title: phase.title,
         age: phase.age,
         timeStart: phase.timeStart,
+        targetVillagers: phase.targetVillagers,
         phaseIndex,
         onAddAction: handlers.onAddAction,
+        onEditHeader: handlers.onEditHeader,
       },
       draggable: false,
       selectable: false,
     });
 
-    let previousActionId: string | null = null;
-
     phase.actions.forEach((action, actionIndex) => {
-      const id = `phase-${phaseIndex}-action-${actionIndex}`;
+      const id = action.id ?? generateActionId();
       const defaultPosition = { x, y: actionIndex * ROW_HEIGHT + ROW_Y_OFFSET };
       nodes.push({
         id,
@@ -202,48 +281,36 @@ function buildEditorElements(
         },
         draggable: true,
       });
+    });
+  });
 
-      if (previousActionId) {
+  const actionIds = new Set(nodes.filter((node) => node.type === 'action').map((node) => node.id));
+  phases.forEach((phase) => {
+    phase.actions.forEach((action) => {
+      const targetId = action.id;
+      if (!targetId || !actionIds.has(targetId)) return;
+      for (const sourceId of action.dependsOn ?? []) {
+        if (!actionIds.has(sourceId)) continue;
         edges.push({
-          id: `${previousActionId}->${id}`,
-          source: previousActionId,
-          target: id,
+          id: `${sourceId}->${targetId}`,
+          source: sourceId,
+          target: targetId,
           type: 'smoothstep',
           animated: false,
-        });
-      } else if (previousPhaseLastActionId) {
-        edges.push({
-          id: `${previousPhaseLastActionId}->${id}`,
-          source: previousPhaseLastActionId,
-          target: id,
-          type: 'smoothstep',
-          animated: false,
+          markerEnd: { type: MarkerType.ArrowClosed },
         });
       }
-
-      previousActionId = id;
     });
-
-    if (previousActionId) {
-      previousPhaseLastActionId = previousActionId;
-    }
   });
 
   return { nodes, edges };
 }
 
-/**
- * Derives the phases JSON from the current node positions: phases are ordered by
- * column (x), actions within a phase by row (y) then made stable by `at` — a drag
- * that didn't touch `at` keeps its row order, ties on `at` fall back to row order.
- */
-function nodesToPhases(nodes: Node[], originalPhases: Phase[]): Phase[] {
-  const headers = nodes
-    .filter((node): node is Node<PhaseHeaderNodeData> => node.type === 'phaseHeader')
-    .slice()
-    .sort((a, b) => a.position.x - b.position.x);
-
-  const actionNodes = nodes.filter((node): node is Node<ActionNodeData> => node.type === 'action');
+/** Groups action nodes under their nearest phase header by column (x) distance. */
+function groupActionsByHeader(
+  headers: Node<PhaseHeaderNodeData>[],
+  actionNodes: Node<ActionNodeData>[],
+): Map<string, Node<ActionNodeData>[]> {
   const actionsByHeaderId = new Map<string, Node<ActionNodeData>[]>();
   headers.forEach((header) => actionsByHeaderId.set(header.id, []));
 
@@ -260,6 +327,34 @@ function nodesToPhases(nodes: Node[], originalPhases: Phase[]): Phase[] {
     if (nearestHeader) actionsByHeaderId.get(nearestHeader.id)?.push(actionNode);
   }
 
+  return actionsByHeaderId;
+}
+
+/**
+ * Derives the phases JSON from the current node positions: phases are ordered by
+ * column (x), actions within a phase by row (y) then made stable by `at` — a drag
+ * that didn't touch `at` keeps its row order, ties on `at` fall back to row order.
+ * Edges are the source of truth for `dependsOn`: an edge is only kept if both its
+ * source and target are still present among the given nodes.
+ */
+function nodesToPhases(nodes: Node[], edges: Edge[], originalPhases: Phase[]): Phase[] {
+  const headers = nodes
+    .filter((node): node is Node<PhaseHeaderNodeData> => node.type === 'phaseHeader')
+    .slice()
+    .sort((a, b) => a.position.x - b.position.x);
+
+  const actionNodes = nodes.filter((node): node is Node<ActionNodeData> => node.type === 'action');
+  const actionIds = new Set(actionNodes.map((node) => node.id));
+  const actionsByHeaderId = groupActionsByHeader(headers, actionNodes);
+
+  const dependsOnByTarget = new Map<string, string[]>();
+  for (const edge of edges) {
+    if (!actionIds.has(edge.source) || !actionIds.has(edge.target)) continue;
+    const list = dependsOnByTarget.get(edge.target) ?? [];
+    if (!list.includes(edge.source)) list.push(edge.source);
+    dependsOnByTarget.set(edge.target, list);
+  }
+
   return headers.map((header, phaseIndex) => {
     const original = originalPhases[phaseIndex];
     const orderedActions = (actionsByHeaderId.get(header.id) ?? [])
@@ -268,15 +363,21 @@ function nodesToPhases(nodes: Node[], originalPhases: Phase[]): Phase[] {
       .sort((a, b) => Number(a.data.at) - Number(b.data.at));
 
     return {
+      title: header.data.title,
       age: header.data.age,
       timeStart: header.data.timeStart,
       targetResources: original?.targetResources,
-      targetVillagers: original?.targetVillagers,
-      actions: orderedActions.map((node) => ({
-        at: Number(node.data.at),
-        description: node.data.description,
-        kind: node.data.kind,
-      })),
+      targetVillagers: header.data.targetVillagers,
+      actions: orderedActions.map((node) => {
+        const dependsOn = dependsOnByTarget.get(node.id);
+        return {
+          id: node.id,
+          at: Number(node.data.at),
+          description: node.data.description,
+          kind: node.data.kind,
+          ...(dependsOn && dependsOn.length ? { dependsOn } : {}),
+        };
+      }),
     };
   });
 }
@@ -286,6 +387,14 @@ interface EditDraft {
   at: string;
   description: string;
   kind: NonNullable<Action['kind']> | 'none';
+}
+
+interface HeaderDraft {
+  phaseIndex: number;
+  title: string;
+  age: Phase['age'];
+  timeStart: string;
+  targetVillagers: string;
 }
 
 const DEFAULT_DRAFT_PHASES: Phase[] = [{ age: 'dark', timeStart: 0, actions: [] }];
@@ -313,10 +422,17 @@ export function BuildOrderEditor({
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  const [headerDraft, setHeaderDraft] = useState<HeaderDraft | null>(null);
+
   const nodesRef = useRef<Node[]>([]);
   useEffect(() => {
     nodesRef.current = nodes;
   }, [nodes]);
+
+  const edgesRef = useRef<Edge[]>([]);
+  useEffect(() => {
+    edgesRef.current = edges;
+  }, [edges]);
 
   const latestPhasesRef = useRef<Phase[]>(
     buildOrder?.phases ?? (initialPhases?.length ? initialPhases : DEFAULT_DRAFT_PHASES),
@@ -342,8 +458,21 @@ export function BuildOrderEditor({
     });
   }
 
+  function openHeaderEditDialog(phaseIndex: number) {
+    const node = nodesRef.current.find((candidate) => candidate.id === `phase-${phaseIndex}-header`);
+    if (!node || node.type !== 'phaseHeader') return;
+    const data = node.data as PhaseHeaderNodeData;
+    setHeaderDraft({
+      phaseIndex,
+      title: data.title ?? '',
+      age: data.age,
+      timeStart: String(data.timeStart),
+      targetVillagers: data.targetVillagers !== undefined ? String(data.targetVillagers) : '',
+    });
+  }
+
   function handleAddAction(phaseIndex: number) {
-    const phases = nodesToPhases(nodesRef.current, originalPhasesSource());
+    const phases = nodesToPhases(nodesRef.current, edgesRef.current, originalPhasesSource());
     const phase = phases[phaseIndex];
     if (!phase) return;
     const lastAction = phase.actions[phase.actions.length - 1];
@@ -362,12 +491,13 @@ export function BuildOrderEditor({
     onAddAction: handleAddAction,
     onEditAction: openEditDialog,
     onDeleteAction: requestDelete,
+    onEditHeader: openHeaderEditDialog,
   };
 
   function confirmDelete() {
     if (!deleteTargetId) return;
     const remainingNodes = nodesRef.current.filter((node) => node.id !== deleteTargetId);
-    const phases = nodesToPhases(remainingNodes, originalPhasesSource());
+    const phases = nodesToPhases(remainingNodes, edgesRef.current, originalPhasesSource());
     const rebuilt = buildEditorElements(phases, handlers);
     setNodes(rebuilt.nodes);
     setEdges(rebuilt.edges);
@@ -407,7 +537,7 @@ export function BuildOrderEditor({
   }
 
   function addPhase() {
-    const phases = nodesToPhases(nodesRef.current, originalPhasesSource());
+    const phases = nodesToPhases(nodesRef.current, edgesRef.current, originalPhasesSource());
     const lastPhase = phases[phases.length - 1];
     const timeStart = lastPhase ? lastPhase.timeStart + 60 : 0;
     const nextPhases: Phase[] = [...phases, { age: 'dark', timeStart, actions: [] }];
@@ -428,6 +558,7 @@ export function BuildOrderEditor({
     setEdges(rebuilt.edges);
     setEditDraft(null);
     setDeleteTargetId(null);
+    setHeaderDraft(null);
   }
 
   useEffect(() => {
@@ -437,19 +568,126 @@ export function BuildOrderEditor({
 
   useEffect(() => {
     if (buildOrder) return;
-    const phases = nodesToPhases(nodes, latestPhasesRef.current);
+    const phases = nodesToPhases(nodes, edges, latestPhasesRef.current);
     latestPhasesRef.current = phases;
     onPhasesChange?.(phases);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodes]);
+  }, [nodes, edges]);
 
   const onConnect: OnConnect = (connection) => {
-    setEdges((current) => addEdge({ ...connection, type: 'smoothstep' }, current));
+    if (!connection.source || !connection.target || connection.source === connection.target) return;
+    setEdges((current) => {
+      const alreadyExists = current.some(
+        (edge) => edge.source === connection.source && edge.target === connection.target,
+      );
+      if (alreadyExists) return current;
+      return addEdge(
+        {
+          ...connection,
+          id: `${connection.source}->${connection.target}`,
+          type: 'smoothstep',
+          markerEnd: { type: MarkerType.ArrowClosed },
+        },
+        current,
+      );
+    });
   };
+
+  const onEdgeDoubleClick: EdgeMouseHandler = (event, edge) => {
+    event.stopPropagation();
+    setEdges((current) => current.filter((candidate) => candidate.id !== edge.id));
+  };
+
+  function clearAllEdges() {
+    if (edgesRef.current.length === 0) return;
+    setEdges([]);
+    toast.success('Tous les liens de dépendance ont été supprimés.');
+  }
+
+  function autoReorder() {
+    const currentNodes = nodesRef.current;
+    const currentEdges = edgesRef.current;
+    const headers = currentNodes
+      .filter((node): node is Node<PhaseHeaderNodeData> => node.type === 'phaseHeader')
+      .sort((a, b) => a.position.x - b.position.x);
+    const actionNodes = currentNodes.filter(
+      (node): node is Node<ActionNodeData> => node.type === 'action',
+    );
+    const actionsByHeaderId = groupActionsByHeader(headers, actionNodes);
+
+    let cyclesFound = false;
+    const positionById = new Map<string, { x: number; y: number }>();
+
+    for (const header of headers) {
+      const groupNodes = actionsByHeaderId.get(header.id) ?? [];
+      const groupIds = new Set(groupNodes.map((node) => node.id));
+      const items = groupNodes.map((node) => ({
+        id: node.id,
+        at: Number(node.data.at),
+        dependsOn: currentEdges
+          .filter((edge) => edge.target === node.id && groupIds.has(edge.source))
+          .map((edge) => edge.source),
+      }));
+      const { order, cyclic } = topologicalOrder(items);
+      if (cyclic.length > 0) cyclesFound = true;
+      const orderedIds = [...order, ...cyclic];
+      orderedIds.forEach((id, index) => {
+        positionById.set(id, { x: header.position.x, y: index * ROW_HEIGHT + ROW_Y_OFFSET });
+      });
+    }
+
+    setNodes((current) =>
+      current.map((node) => {
+        const position = positionById.get(node.id);
+        return position ? { ...node, position } : node;
+      }),
+    );
+
+    if (cyclesFound) {
+      toast.warning('Certaines actions ont des dépendances cycliques et n’ont pas pu être triées.');
+    }
+  }
+
+  function applyHeaderEdit() {
+    if (!headerDraft) return;
+    const timeStart = Number(headerDraft.timeStart);
+    if (!Number.isFinite(timeStart) || timeStart < 0) {
+      toast.error('Le temps de début doit être un nombre positif.');
+      return;
+    }
+    let targetVillagers: number | undefined;
+    if (headerDraft.targetVillagers.trim()) {
+      targetVillagers = Number(headerDraft.targetVillagers);
+      if (!Number.isFinite(targetVillagers) || targetVillagers < 0) {
+        toast.error('Le nombre de villageois cible doit être un nombre positif.');
+        return;
+      }
+    }
+
+    const headerId = `phase-${headerDraft.phaseIndex}-header`;
+    setNodes((current) =>
+      current.map((node) =>
+        node.id === headerId
+          ? {
+              ...node,
+              data: {
+                ...node.data,
+                title: headerDraft.title.trim() || undefined,
+                age: headerDraft.age,
+                timeStart,
+                targetVillagers,
+              },
+            }
+          : node,
+      ),
+    );
+    setHeaderDraft(null);
+  }
 
   async function handleSave() {
     if (!buildOrder || !getToken) return;
     const currentNodes = nodesRef.current;
+    const currentEdges = edgesRef.current;
     const actionNodes = currentNodes.filter(
       (node): node is Node<ActionNodeData> => node.type === 'action',
     );
@@ -466,6 +704,34 @@ export function BuildOrderEditor({
       }
     }
 
+    const phases = nodesToPhases(currentNodes, currentEdges, originalPhasesSource());
+    const allActions = phases.flatMap((phase) => phase.actions);
+    const actionsById = new Map(allActions.map((action) => [action.id as string, action]));
+
+    const cycle = findDependencyCycle(
+      allActions.map((action) => ({ id: action.id as string, dependsOn: action.dependsOn ?? [] })),
+    );
+    if (cycle) {
+      toast.error('Dépendances cycliques détectées.', {
+        description: cycle
+          .map((id) => actionsById.get(id)?.description ?? id)
+          .join(' → '),
+      });
+      return;
+    }
+
+    for (const action of allActions) {
+      for (const depId of action.dependsOn ?? []) {
+        const dependency = actionsById.get(depId);
+        if (dependency && dependency.at > action.at) {
+          toast.error(
+            `L'action "${action.description}" démarre avant "${dependency.description}" dont elle dépend.`,
+          );
+          return;
+        }
+      }
+    }
+
     setSaving(true);
     try {
       const token = await getToken();
@@ -473,7 +739,6 @@ export function BuildOrderEditor({
         toast.error('Vous devez être connecté pour enregistrer.');
         return;
       }
-      const phases = nodesToPhases(currentNodes, originalPhasesSource());
       const updated = await updateBuildOrder(buildOrder.id, { phases }, token);
       toast.success('Build order enregistré.');
       onSaved?.(updated);
@@ -492,6 +757,14 @@ export function BuildOrderEditor({
         <Button type="button" variant="outline" size="sm" onClick={addPhase}>
           <PlusIcon />
           Ajouter une phase
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={autoReorder}>
+          <ArrowDownUpIcon />
+          Réordonner auto
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={clearAllEdges}>
+          <Link2OffIcon />
+          Supprimer les liens
         </Button>
         <div className="flex-1" />
         {buildOrder && (
@@ -515,6 +788,7 @@ export function BuildOrderEditor({
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          onEdgeDoubleClick={onEdgeDoubleClick}
           nodeTypes={nodeTypes}
           fitView
           proOptions={{ hideAttribution: true }}
@@ -610,6 +884,79 @@ export function BuildOrderEditor({
             <Button variant="destructive" onClick={confirmDelete}>
               Supprimer
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={headerDraft !== null} onOpenChange={(open) => !open && setHeaderDraft(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Modifier la phase</DialogTitle>
+            <DialogDescription>Ajustez le titre, l&apos;âge et l&apos;instant de début.</DialogDescription>
+          </DialogHeader>
+          {headerDraft && (
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="phase-title">Titre</Label>
+                <Input
+                  id="phase-title"
+                  value={headerDraft.title}
+                  onChange={(event) =>
+                    setHeaderDraft({ ...headerDraft, title: event.target.value })
+                  }
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="phase-age">Âge</Label>
+                <Select
+                  value={headerDraft.age}
+                  onValueChange={(value) =>
+                    setHeaderDraft({ ...headerDraft, age: value as Phase['age'] })
+                  }
+                >
+                  <SelectTrigger id="phase-age" className="w-full">
+                    <SelectValue placeholder="Âge" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {AGE_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="phase-time-start">Instant de début (secondes)</Label>
+                <Input
+                  id="phase-time-start"
+                  type="number"
+                  min={0}
+                  value={headerDraft.timeStart}
+                  onChange={(event) =>
+                    setHeaderDraft({ ...headerDraft, timeStart: event.target.value })
+                  }
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="phase-target-villagers">Villageois cible (optionnel)</Label>
+                <Input
+                  id="phase-target-villagers"
+                  type="number"
+                  min={0}
+                  value={headerDraft.targetVillagers}
+                  onChange={(event) =>
+                    setHeaderDraft({ ...headerDraft, targetVillagers: event.target.value })
+                  }
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setHeaderDraft(null)}>
+              Annuler
+            </Button>
+            <Button onClick={applyHeaderEdit}>Appliquer</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

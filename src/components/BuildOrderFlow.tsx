@@ -6,6 +6,7 @@ import {
   MiniMap,
   Handle,
   Position,
+  MarkerType,
   useNodesState,
   useEdgesState,
   type Node,
@@ -30,6 +31,7 @@ import {
   CogIcon,
   TrendingUpIcon,
   DotIcon,
+  Link2Icon,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -50,6 +52,7 @@ interface ActionNodeData extends Record<string, unknown> {
   description: string;
   at: number;
   kind?: Action['kind'];
+  hasDependency?: boolean;
 }
 
 function ActionNode({ data }: NodeProps<Node<ActionNodeData, 'action'>>) {
@@ -61,12 +64,15 @@ function ActionNode({ data }: NodeProps<Node<ActionNodeData, 'action'>>) {
         <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted">
           <Icon className="size-4 text-muted-foreground" />
         </div>
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-1 flex-col gap-1">
           <span className="font-mono text-xs text-muted-foreground">
             {formatTime(data.at)}
           </span>
           <span className="text-sm font-medium leading-snug">{data.description}</span>
         </div>
+        {data.hasDependency && (
+          <Link2Icon className="size-4 shrink-0 text-muted-foreground" />
+        )}
       </div>
       <Handle type="source" position={Position.Bottom} className="!bg-muted-foreground" />
     </div>
@@ -100,6 +106,7 @@ function buildFlowElements(buildOrder: BuildOrder): { nodes: Node[]; edges: Edge
   const flowNodes: Node[] = [];
   const flowEdges: Edge[] = [];
   const layout = buildOrder.layout;
+  const nodeIdByActionId = new Map<string, string>();
   let previousPhaseLastActionId: string | null = null;
 
   buildOrder.phases.forEach((phase, phaseIndex) => {
@@ -118,31 +125,39 @@ function buildFlowElements(buildOrder: BuildOrder): { nodes: Node[]; edges: Edge
 
     phase.actions.forEach((action, actionIndex) => {
       const id = `phase-${phaseIndex}-action-${actionIndex}`;
+      if (action.id) nodeIdByActionId.set(action.id, id);
       const defaultPosition = { x, y: actionIndex * ROW_HEIGHT + ROW_Y_OFFSET };
       flowNodes.push({
         id,
         type: 'action',
         position: layout?.[id] ?? defaultPosition,
-        data: { description: action.description, at: action.at, kind: action.kind },
+        data: {
+          description: action.description,
+          at: action.at,
+          kind: action.kind,
+          hasDependency: Boolean(action.dependsOn?.length),
+        },
         draggable: true,
       });
 
-      if (previousActionId) {
-        flowEdges.push({
-          id: `${previousActionId}->${id}`,
-          source: previousActionId,
-          target: id,
-          type: 'smoothstep',
-          animated: false,
-        });
-      } else if (previousPhaseLastActionId) {
-        flowEdges.push({
-          id: `${previousPhaseLastActionId}->${id}`,
-          source: previousPhaseLastActionId,
-          target: id,
-          type: 'smoothstep',
-          animated: false,
-        });
+      if (!action.dependsOn?.length) {
+        if (previousActionId) {
+          flowEdges.push({
+            id: `${previousActionId}->${id}`,
+            source: previousActionId,
+            target: id,
+            type: 'smoothstep',
+            animated: false,
+          });
+        } else if (previousPhaseLastActionId) {
+          flowEdges.push({
+            id: `${previousPhaseLastActionId}->${id}`,
+            source: previousPhaseLastActionId,
+            target: id,
+            type: 'smoothstep',
+            animated: false,
+          });
+        }
       }
 
       previousActionId = id;
@@ -151,6 +166,27 @@ function buildFlowElements(buildOrder: BuildOrder): { nodes: Node[]; edges: Edge
     if (previousActionId) {
       previousPhaseLastActionId = previousActionId;
     }
+  });
+
+  buildOrder.phases.forEach((phase) => {
+    phase.actions.forEach((action) => {
+      if (!action.id || !action.dependsOn?.length) return;
+      const targetNodeId = nodeIdByActionId.get(action.id);
+      if (!targetNodeId) return;
+      for (const depId of action.dependsOn) {
+        const sourceNodeId = nodeIdByActionId.get(depId);
+        if (!sourceNodeId) continue;
+        flowEdges.push({
+          id: `dep-${sourceNodeId}->${targetNodeId}`,
+          source: sourceNodeId,
+          target: targetNodeId,
+          type: 'smoothstep',
+          animated: false,
+          style: { strokeDasharray: '4 4' },
+          markerEnd: { type: MarkerType.ArrowClosed },
+        });
+      }
+    });
   });
 
   return { nodes: flowNodes, edges: flowEdges };
