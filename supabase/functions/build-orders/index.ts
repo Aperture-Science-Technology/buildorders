@@ -1,7 +1,8 @@
-// Edge Function: authenticated CRUD for build_orders.
-// Reads are public via the client's anon/publishable key + RLS; writes go through
-// here so we can verify the caller's Clerk session token and enforce ownership
-// before touching the table with the service-role key (which bypasses RLS).
+// Edge Function: authenticated CRUD + visibility-aware reads for build_orders.
+// All reads and writes go through here so we can verify the caller's Clerk
+// session token, enforce ownership/visibility, and touch the tables with the
+// service-role key (which bypasses RLS). PostgREST direct access is no longer
+// used for private/shared data.
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { verifyToken } from 'npm:@clerk/backend@3';
@@ -9,7 +10,7 @@ import { verifyToken } from 'npm:@clerk/backend@3';
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, PATCH, DELETE, OPTIONS',
+  'Access-Control-Allow-Methods': 'POST, GET, PATCH, DELETE, OPTIONS',
 };
 
 function json(body: unknown, status = 200): Response {
@@ -57,9 +58,11 @@ interface BuildOrderPayload {
   matchupNotes?: unknown;
   difficulty?: unknown;
   layout?: unknown;
+  visibility?: unknown;
 }
 
 const GAME_MODES = ['1v1', '2v2', '3v3', '4v4', 'ffa'];
+const VISIBILITIES = ['public', 'private', 'shared'];
 
 function sanitizeStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -146,12 +149,198 @@ function toRow(payload: BuildOrderPayload): Record<string, unknown> | { error: s
     row.layout = payload.layout;
   }
 
+  if (payload.visibility !== undefined) {
+    if (!VISIBILITIES.includes(payload.visibility as string)) {
+      return { error: `visibility must be one of: ${VISIBILITIES.join(', ')}` };
+    }
+    row.visibility = payload.visibility;
+  }
+
   return row;
+}
+
+const DEFAULT_LIST_LIMIT = 50;
+const MAX_LIST_LIMIT = 200;
+
+async function ensureProfile(userId: string): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from('profiles')
+    .upsert({ id: userId, display_name: '' }, { onConflict: 'id', ignoreDuplicates: true });
+  if (error) {
+    console.error('Profile upsert failed:', error.message);
+  }
+}
+
+// Build ids shared directly with the user, or via a guild they're a member of.
+async function getSharedBuildIds(userId: string): Promise<string[]> {
+  const { data: memberships, error: membershipsError } = await supabaseAdmin
+    .from('guild_members')
+    .select('guild_id')
+    .eq('user_id', userId);
+  if (membershipsError) throw membershipsError;
+  const guildIds = (memberships ?? []).map((row) => row.guild_id as string);
+
+  const { data: userShares, error: userSharesError } = await supabaseAdmin
+    .from('build_shares')
+    .select('build_id')
+    .eq('user_id', userId);
+  if (userSharesError) throw userSharesError;
+
+  let guildShares: { build_id: string }[] = [];
+  if (guildIds.length > 0) {
+    const { data, error } = await supabaseAdmin
+      .from('build_shares')
+      .select('build_id')
+      .in('guild_id', guildIds);
+    if (error) throw error;
+    guildShares = data ?? [];
+  }
+
+  const ids = new Set<string>();
+  for (const row of userShares ?? []) ids.add(row.build_id as string);
+  for (const row of guildShares) ids.add(row.build_id as string);
+  return Array.from(ids);
+}
+
+async function canReadBuild(build: Record<string, unknown>, userId: string | null): Promise<boolean> {
+  if (build.visibility === 'public') return true;
+  if (!userId) return false;
+  if (build.owner_id === userId) return true;
+  const sharedIds = await getSharedBuildIds(userId);
+  return sharedIds.includes(build.id as string);
+}
+
+function parseLimit(params: URLSearchParams): number {
+  const raw = Number(params.get('limit'));
+  if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_LIST_LIMIT;
+  return Math.min(Math.floor(raw), MAX_LIST_LIMIT);
+}
+
+async function handleGet(req: Request, userId: string | null): Promise<Response> {
+  const { searchParams } = new URL(req.url);
+
+  try {
+    if (searchParams.get('profile') === 'true') {
+      if (!userId) return json({ error: 'Unauthorized' }, 401);
+      await ensureProfile(userId);
+      const { data, error } = await supabaseAdmin
+        .from('profiles')
+        .select('id, display_name, avatar_url, preferences')
+        .eq('id', userId)
+        .single();
+      if (error) return json({ error: error.message }, 500);
+      return json(data, 200);
+    }
+
+    const id = searchParams.get('id');
+    if (id) {
+      const { data, error } = await supabaseAdmin.from('build_orders').select('*').eq('id', id).maybeSingle();
+      if (error) return json({ error: error.message }, 500);
+      if (!data || !(await canReadBuild(data, userId))) {
+        return json({ error: 'Not found' }, 404);
+      }
+      return json(data, 200);
+    }
+
+    const limit = parseLimit(searchParams);
+    const mineOnly = searchParams.get('mine') === 'true';
+    const publicOnly = searchParams.get('public') === 'true';
+
+    if (mineOnly) {
+      if (!userId) return json({ error: 'Unauthorized' }, 401);
+      const { data, error } = await supabaseAdmin
+        .from('build_orders')
+        .select('*')
+        .eq('owner_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+      if (error) return json({ error: error.message }, 500);
+      return json(data, 200);
+    }
+
+    if (publicOnly) {
+      const { data, error } = await supabaseAdmin
+        .from('build_orders')
+        .select('*')
+        .eq('visibility', 'public')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+      if (error) return json({ error: error.message }, 500);
+      return json(data, 200);
+    }
+
+    if (!userId) {
+      // No token: same as ?public=true.
+      const { data, error } = await supabaseAdmin
+        .from('build_orders')
+        .select('*')
+        .eq('visibility', 'public')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+      if (error) return json({ error: error.message }, 500);
+      return json(data, 200);
+    }
+
+    // Mixed list: public builds + the caller's own builds + builds shared with them.
+    // Three separate simple queries, deduped by id, rather than one complex SQL query.
+    const sharedIds = await getSharedBuildIds(userId);
+    const queries = [
+      supabaseAdmin
+        .from('build_orders')
+        .select('*')
+        .eq('visibility', 'public')
+        .order('created_at', { ascending: false })
+        .limit(limit),
+      supabaseAdmin
+        .from('build_orders')
+        .select('*')
+        .eq('owner_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(limit),
+    ];
+    if (sharedIds.length > 0) {
+      queries.push(
+        supabaseAdmin
+          .from('build_orders')
+          .select('*')
+          .in('id', sharedIds)
+          .order('created_at', { ascending: false })
+          .limit(limit),
+      );
+    }
+
+    const results = await Promise.all(queries);
+    for (const result of results) {
+      if (result.error) return json({ error: result.error.message }, 500);
+    }
+
+    const byId = new Map<string, Record<string, unknown>>();
+    for (const result of results) {
+      for (const row of result.data ?? []) {
+        byId.set(row.id as string, row);
+      }
+    }
+
+    const merged = Array.from(byId.values())
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+      .slice(0, limit);
+
+    return json(merged, 200);
+  } catch (err) {
+    return json({ error: err instanceof Error ? err.message : 'Internal error' }, 500);
+  }
 }
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: CORS_HEADERS });
+  }
+
+  if (req.method === 'GET') {
+    // Public builds must remain readable without a token; handleGet enforces
+    // auth itself for anything that isn't visibility='public'.
+    const userId = await getUserId(req);
+    return handleGet(req, userId);
   }
 
   if (!['POST', 'PATCH', 'DELETE'].includes(req.method)) {
@@ -176,6 +365,8 @@ Deno.serve(async (req: Request) => {
     if (!row.civ || !row.type || !row.source_url || !row.source_type || !row.phases) {
       return json({ error: 'Missing required fields: civ, type, sourceUrl, sourceType, phases' }, 400);
     }
+
+    await ensureProfile(userId);
 
     const { data, error } = await supabaseAdmin
       .from('build_orders')
