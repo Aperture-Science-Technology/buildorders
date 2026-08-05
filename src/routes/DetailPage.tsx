@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@clerk/clerk-react';
 import { getBuildOrder, deleteBuildOrder } from '@/lib/api';
 import type { BuildOrder, Visibility } from '@/lib/types';
+import { civFlag } from '@/lib/civs';
 import { BuildOrderFlow } from '@/components/BuildOrderFlow';
 import { BuildOrderEditor } from '@/components/BuildOrderEditor';
 import { Scenarios } from '@/components/Scenarios';
@@ -110,7 +111,10 @@ export function DetailPage() {
     <div className="space-y-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-2">
-          <h1 className="text-2xl font-semibold tracking-tight">{buildOrder.civ}</h1>
+          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
+            <span aria-hidden="true">{civFlag(buildOrder.civ)}</span>
+            {buildOrder.civ}
+          </h1>
           <div className="flex flex-wrap gap-2">
             <Badge>{TYPE_LABELS[buildOrder.type]}</Badge>
             <VisibilityBadge visibility={buildOrder.visibility ?? 'public'} />
