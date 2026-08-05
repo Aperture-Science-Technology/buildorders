@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   ReactFlow,
   Background,
@@ -6,13 +6,19 @@ import {
   MiniMap,
   Handle,
   Position,
+  useNodesState,
+  useEdgesState,
   type Node,
   type Edge,
   type NodeProps,
   type NodeTypes,
+  type OnNodeDrag,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import { useAuth } from '@clerk/clerk-react';
+import { toast } from 'sonner';
 import type { Action, BuildOrder, Phase } from '@/lib/types';
+import { updateBuildOrder } from '@/lib/api';
 import { AGE_LABELS, formatTime } from '@/lib/format';
 import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -88,68 +94,117 @@ const nodeTypes: NodeTypes = {
   phaseHeader: PhaseHeaderNode,
 };
 
+const SAVE_DEBOUNCE_MS = 500;
+
+function buildFlowElements(buildOrder: BuildOrder): { nodes: Node[]; edges: Edge[] } {
+  const flowNodes: Node[] = [];
+  const flowEdges: Edge[] = [];
+  const layout = buildOrder.layout;
+  let previousPhaseLastActionId: string | null = null;
+
+  buildOrder.phases.forEach((phase, phaseIndex) => {
+    const x = phaseIndex * COLUMN_WIDTH;
+
+    flowNodes.push({
+      id: `phase-${phaseIndex}-header`,
+      type: 'phaseHeader',
+      position: { x, y: 0 },
+      data: { age: phase.age, timeStart: phase.timeStart },
+      draggable: false,
+      selectable: false,
+    });
+
+    let previousActionId: string | null = null;
+
+    phase.actions.forEach((action, actionIndex) => {
+      const id = `phase-${phaseIndex}-action-${actionIndex}`;
+      const defaultPosition = { x, y: actionIndex * ROW_HEIGHT + ROW_Y_OFFSET };
+      flowNodes.push({
+        id,
+        type: 'action',
+        position: layout?.[id] ?? defaultPosition,
+        data: { description: action.description, at: action.at, kind: action.kind },
+        draggable: true,
+      });
+
+      if (previousActionId) {
+        flowEdges.push({
+          id: `${previousActionId}->${id}`,
+          source: previousActionId,
+          target: id,
+          type: 'smoothstep',
+          animated: false,
+        });
+      } else if (previousPhaseLastActionId) {
+        flowEdges.push({
+          id: `${previousPhaseLastActionId}->${id}`,
+          source: previousPhaseLastActionId,
+          target: id,
+          type: 'smoothstep',
+          animated: false,
+        });
+      }
+
+      previousActionId = id;
+    });
+
+    if (previousActionId) {
+      previousPhaseLastActionId = previousActionId;
+    }
+  });
+
+  return { nodes: flowNodes, edges: flowEdges };
+}
+
 interface BuildOrderFlowProps {
   buildOrder: BuildOrder;
 }
 
 export function BuildOrderFlow({ buildOrder }: BuildOrderFlowProps) {
-  const { nodes, edges } = useMemo(() => {
-    const flowNodes: Node[] = [];
-    const flowEdges: Edge[] = [];
-    let previousPhaseLastActionId: string | null = null;
+  const { userId, getToken } = useAuth();
+  const canPersistLayout = Boolean(userId) && buildOrder.ownerId === userId;
 
-    buildOrder.phases.forEach((phase, phaseIndex) => {
-      const x = phaseIndex * COLUMN_WIDTH;
+  const initialElements = useMemo(() => buildFlowElements(buildOrder), [buildOrder]);
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialElements.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialElements.edges);
 
-      flowNodes.push({
-        id: `phase-${phaseIndex}-header`,
-        type: 'phaseHeader',
-        position: { x, y: 0 },
-        data: { age: phase.age, timeStart: phase.timeStart },
-        draggable: false,
-        selectable: false,
-      });
+  useEffect(() => {
+    setNodes(initialElements.nodes);
+    setEdges(initialElements.edges);
+  }, [initialElements, setNodes, setEdges]);
 
-      let previousActionId: string | null = null;
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-      phase.actions.forEach((action, actionIndex) => {
-        const id = `phase-${phaseIndex}-action-${actionIndex}`;
-        flowNodes.push({
-          id,
-          type: 'action',
-          position: { x, y: actionIndex * ROW_HEIGHT + ROW_Y_OFFSET },
-          data: { description: action.description, at: action.at, kind: action.kind },
-          draggable: false,
-        });
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    };
+  }, []);
 
-        if (previousActionId) {
-          flowEdges.push({
-            id: `${previousActionId}->${id}`,
-            source: previousActionId,
-            target: id,
-            type: 'smoothstep',
-            animated: false,
-          });
-        } else if (previousPhaseLastActionId) {
-          flowEdges.push({
-            id: `${previousPhaseLastActionId}->${id}`,
-            source: previousPhaseLastActionId,
-            target: id,
-            type: 'smoothstep',
-            animated: false,
-          });
+  const handleNodeDragStop: OnNodeDrag = useCallback(() => {
+    if (!canPersistLayout) return;
+
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      const layout: Record<string, { x: number; y: number }> = {};
+      for (const node of nodes) {
+        if (node.type === 'action') {
+          layout[node.id] = { x: node.position.x, y: node.position.y };
         }
-
-        previousActionId = id;
-      });
-
-      if (previousActionId) {
-        previousPhaseLastActionId = previousActionId;
       }
-    });
 
-    return { nodes: flowNodes, edges: flowEdges };
-  }, [buildOrder]);
+      getToken()
+        .then((token) => {
+          if (!token) return;
+          return updateBuildOrder(buildOrder.id, { layout }, token);
+        })
+        .catch((error: unknown) => {
+          toast.error("Impossible d'enregistrer la position", {
+            description: error instanceof Error ? error.message : undefined,
+          });
+        });
+    }, SAVE_DEBOUNCE_MS);
+  }, [canPersistLayout, nodes, getToken, buildOrder.id]);
 
   const hasActions = buildOrder.phases.some((phase) => phase.actions.length > 0);
 
@@ -168,6 +223,9 @@ export function BuildOrderFlow({ buildOrder }: BuildOrderFlowProps) {
     <ReactFlow
       nodes={nodes}
       edges={edges}
+      onNodesChange={onNodesChange}
+      onEdgesChange={onEdgesChange}
+      onNodeDragStop={handleNodeDragStop}
       nodeTypes={nodeTypes}
       fitView
       proOptions={{ hideAttribution: true }}
@@ -176,7 +234,7 @@ export function BuildOrderFlow({ buildOrder }: BuildOrderFlowProps) {
       zoomOnPinch
       selectionOnDrag
       panOnScroll={false}
-      nodesDraggable={false}
+      nodesDraggable={true}
       nodesConnectable={false}
     >
       <Background />

@@ -56,6 +56,7 @@ interface BuildOrderPayload {
   weaknesses?: unknown;
   matchupNotes?: unknown;
   difficulty?: unknown;
+  layout?: unknown;
 }
 
 const GAME_MODES = ['1v1', '2v2', '3v3', '4v4', 'ffa'];
@@ -124,6 +125,25 @@ function toRow(payload: BuildOrderPayload): Record<string, unknown> | { error: s
       }
     }
     row.difficulty = payload.difficulty;
+  }
+
+  if (payload.layout !== undefined) {
+    if (payload.layout !== null) {
+      if (
+        typeof payload.layout !== 'object' ||
+        Array.isArray(payload.layout) ||
+        !Object.values(payload.layout as Record<string, unknown>).every(
+          (entry) =>
+            entry !== null &&
+            typeof entry === 'object' &&
+            typeof (entry as Record<string, unknown>).x === 'number' &&
+            typeof (entry as Record<string, unknown>).y === 'number',
+        )
+      ) {
+        return { error: 'layout must be an object mapping nodeId to { x: number, y: number }' };
+      }
+    }
+    row.layout = payload.layout;
   }
 
   return row;
