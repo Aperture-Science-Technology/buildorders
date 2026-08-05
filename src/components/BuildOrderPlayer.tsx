@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Action, BuildOrder, Phase } from '@/lib/types';
 import { AGE_LABELS, formatTime, ownerDisplayName, ownerInitial } from '@/lib/format';
+import { iconForAction } from '@/lib/gameIcons';
 import { CivFlag } from '@/components/CivFlag';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -39,6 +40,7 @@ interface TimelineEntry {
   at: number;
   description: string;
   kind?: Action['kind'];
+  iconId?: string;
   phaseAge: Phase['age'];
 }
 
@@ -50,6 +52,7 @@ function buildTimeline(buildOrder: BuildOrder): TimelineEntry[] {
         at: action.at,
         description: action.description,
         kind: action.kind,
+        iconId: action.iconId,
         phaseAge: phase.age,
       });
     }
@@ -194,6 +197,8 @@ export function BuildOrderPlayer({ buildOrder }: BuildOrderPlayerProps) {
   }
 
   const Icon = currentAction.kind ? ACTION_KIND_ICONS[currentAction.kind] : DotIcon;
+  const currentIconSrc = iconForAction(currentAction);
+  const nextIconSrc = nextAction ? iconForAction(nextAction) : '';
   const progressToNext = nextAction
     ? Math.min(1, (now - currentAction.at) / (nextAction.at - currentAction.at))
     : 1;
@@ -229,8 +234,12 @@ export function BuildOrderPlayer({ buildOrder }: BuildOrderPlayerProps) {
         <CardContent className="flex h-full flex-col items-center justify-center gap-6 py-12 text-center">
           <Badge>{AGE_LABELS[currentAction.phaseAge]}</Badge>
           <div className="flex flex-col items-center gap-4">
-            <div className="flex size-20 items-center justify-center rounded-full bg-muted">
-              <Icon className="size-10 text-foreground" />
+            <div className="flex size-20 items-center justify-center overflow-hidden rounded-full bg-muted">
+              {currentIconSrc ? (
+                <img src={currentIconSrc} alt="" className="size-20 object-cover" />
+              ) : (
+                <Icon className="size-10 text-foreground" />
+              )}
             </div>
             <p className="max-w-2xl text-3xl font-semibold sm:text-4xl">
               {currentAction.description}
@@ -240,7 +249,10 @@ export function BuildOrderPlayer({ buildOrder }: BuildOrderPlayerProps) {
       </Card>
 
       {nextAction && (
-        <p className="text-center text-sm text-muted-foreground">
+        <p className="flex items-center justify-center gap-2 text-center text-sm text-muted-foreground">
+          {nextIconSrc && (
+            <img src={nextIconSrc} alt="" className="size-5 rounded-sm object-cover" />
+          )}
           Prochaine : {formatTime(nextAction.at)} — {nextAction.description}
         </p>
       )}

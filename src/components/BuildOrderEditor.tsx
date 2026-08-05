@@ -24,6 +24,7 @@ import { toast } from 'sonner';
 import type { Action, BuildOrder, Phase } from '@/lib/types';
 import { updateBuildOrder } from '@/lib/api';
 import { AGE_LABELS, formatTime } from '@/lib/format';
+import { GAME_ICONS, iconForAction } from '@/lib/gameIcons';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -179,6 +180,7 @@ interface ActionNodeData extends Record<string, unknown> {
   description: string;
   at: number;
   kind?: Action['kind'];
+  iconId?: string;
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
 }
@@ -217,6 +219,7 @@ interface MenuState {
 
 function ActionNode({ id, data }: NodeProps<Node<ActionNodeData, 'action'>>) {
   const Icon = data.kind ? ACTION_KIND_ICONS[data.kind] : DotIcon;
+  const gameIconSrc = iconForAction({ description: data.description, at: data.at, kind: data.kind, iconId: data.iconId });
   return (
     <div
       className="group relative w-[280px] rounded-lg border bg-card text-card-foreground shadow-sm"
@@ -224,8 +227,12 @@ function ActionNode({ id, data }: NodeProps<Node<ActionNodeData, 'action'>>) {
     >
       <Handle type="target" position={Position.Top} className="!bg-muted-foreground" />
       <div className="flex items-start gap-3 p-3">
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted">
-          <Icon className="size-4 text-muted-foreground" />
+        <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted">
+          {gameIconSrc ? (
+            <img src={gameIconSrc} alt="" className="size-8 rounded-sm object-cover" />
+          ) : (
+            <Icon className="size-4 text-muted-foreground" />
+          )}
         </div>
         <div className="flex flex-1 flex-col gap-1">
           <span className="font-mono text-xs text-muted-foreground">{formatTime(data.at)}</span>
@@ -324,6 +331,7 @@ function buildEditorElements(
           description: action.description,
           at: action.at,
           kind: action.kind,
+          iconId: action.iconId,
           onEdit: handlers.onEditAction,
           onDelete: handlers.onDeleteAction,
         },
@@ -423,6 +431,7 @@ function nodesToPhases(nodes: Node[], edges: Edge[], originalPhases: Phase[]): P
           at: Number(node.data.at),
           description: node.data.description,
           kind: node.data.kind,
+          ...(node.data.iconId ? { iconId: node.data.iconId } : {}),
           ...(dependsOn && dependsOn.length ? { dependsOn } : {}),
         };
       }),
@@ -435,6 +444,7 @@ interface EditDraft {
   at: string;
   description: string;
   kind: NonNullable<Action['kind']> | 'none';
+  iconId: string | null;
 }
 
 interface HeaderDraft {
@@ -516,6 +526,7 @@ export function BuildOrderEditor({
       at: String(data.at),
       description: data.description,
       kind: data.kind ?? 'none',
+      iconId: data.iconId ?? null,
     });
   }
 
@@ -629,6 +640,7 @@ export function BuildOrderEditor({
                 at,
                 description,
                 kind: editDraft.kind === 'none' ? undefined : editDraft.kind,
+                iconId: editDraft.iconId ?? undefined,
               },
             }
           : node,
@@ -1141,6 +1153,36 @@ export function BuildOrderEditor({
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>Icône</Label>
+                <div className="grid max-h-48 grid-cols-6 gap-1 overflow-y-auto rounded-md border p-2">
+                  <button
+                    type="button"
+                    title="Icône par défaut"
+                    className={cn(
+                      'flex size-8 items-center justify-center rounded-sm border text-[10px] text-muted-foreground hover:border-primary',
+                      editDraft.iconId === null && 'border-primary ring-1 ring-primary',
+                    )}
+                    onClick={() => setEditDraft({ ...editDraft, iconId: null })}
+                  >
+                    —
+                  </button>
+                  {GAME_ICONS.map((icon) => (
+                    <button
+                      type="button"
+                      key={icon.id}
+                      title={icon.label}
+                      className={cn(
+                        'flex size-8 items-center justify-center overflow-hidden rounded-sm border hover:border-primary',
+                        editDraft.iconId === icon.id && 'border-primary ring-1 ring-primary',
+                      )}
+                      onClick={() => setEditDraft({ ...editDraft, iconId: icon.id })}
+                    >
+                      <img src={icon.src} alt={icon.label} className="size-8 rounded-sm object-cover" />
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           )}
