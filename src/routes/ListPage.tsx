@@ -1,11 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '@clerk/clerk-react';
 import { listBuildOrders } from '@/lib/api';
 import type { BuildOrder, GameMode } from '@/lib/types';
 import { CivFlag } from '@/components/CivFlag';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { LikeButton } from '@/components/LikeButton';
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  CardAction,
+} from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,7 +29,15 @@ import {
 import { VisibilityBadge, VISIBILITY_OPTIONS } from '@/components/VisibilityBadge';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { ownerDisplayName, ownerInitial } from '@/lib/format';
-import { PlusIcon, LayersIcon, StarIcon } from 'lucide-react';
+import { PlusIcon, LayersIcon, StarIcon, XIcon } from 'lucide-react';
+
+type SortOption = 'recent' | 'views' | 'likes';
+
+const SORT_OPTIONS: { value: SortOption; label: string }[] = [
+  { value: 'recent', label: 'Plus récents' },
+  { value: 'views', label: 'Plus vus' },
+  { value: 'likes', label: 'Plus populaires' },
+];
 
 const TYPE_LABELS: Record<BuildOrder['type'], string> = {
   rush: 'Rush',
@@ -53,12 +69,15 @@ const DIFFICULTY_OPTIONS = ['1', '2', '3', '4', '5'];
 
 export function ListPage() {
   const { isLoaded, isSignedIn, getToken } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const civFilter = searchParams.get('civ');
   const [buildOrders, setBuildOrders] = useState<BuildOrder[] | null>(null);
   const [search, setSearch] = useState('');
   const [gameModeFilter, setGameModeFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [difficultyFilter, setDifficultyFilter] = useState('all');
   const [visibilityFilter, setVisibilityFilter] = useState('all');
+  const [sort, setSort] = useState<SortOption>('recent');
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -67,7 +86,7 @@ export function ListPage() {
     async function load() {
       try {
         const token = isSignedIn ? ((await getToken()) ?? undefined) : undefined;
-        const data = await listBuildOrders(token ? { token } : {});
+        const data = await listBuildOrders(token ? { token, sort } : { sort });
         if (!cancelled) setBuildOrders(data);
       } catch (error) {
         if (cancelled) return;
@@ -83,13 +102,27 @@ export function ListPage() {
     return () => {
       cancelled = true;
     };
-  }, [isLoaded, isSignedIn, getToken]);
+  }, [isLoaded, isSignedIn, getToken, sort]);
+
+  function updateBuildOrderLikeState(id: string, liked: boolean, likeCount: number) {
+    setBuildOrders((prev) =>
+      prev ? prev.map((item) => (item.id === id ? { ...item, liked, likeCount } : item)) : prev,
+    );
+  }
+
+  function clearCivFilter() {
+    const next = new URLSearchParams(searchParams);
+    next.delete('civ');
+    setSearchParams(next);
+  }
 
   const filteredBuildOrders = useMemo(() => {
     if (!buildOrders) return [];
     const query = search.trim().toLowerCase();
+    const civQuery = civFilter?.trim().toLowerCase();
 
     return buildOrders.filter((buildOrder) => {
+      if (civQuery && buildOrder.civ.trim().toLowerCase() !== civQuery) return false;
       if (query && !buildOrder.civ.toLowerCase().includes(query)) return false;
       if (gameModeFilter !== 'all' && !buildOrder.gameModes?.includes(gameModeFilter as GameMode)) {
         return false;
@@ -103,7 +136,7 @@ export function ListPage() {
       }
       return true;
     });
-  }, [buildOrders, search, gameModeFilter, typeFilter, difficultyFilter, visibilityFilter]);
+  }, [buildOrders, search, civFilter, gameModeFilter, typeFilter, difficultyFilter, visibilityFilter]);
 
   const hasActiveFilters =
     search.trim() !== '' ||
@@ -151,12 +184,39 @@ export function ListPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Build orders</h1>
-        <p className="text-muted-foreground">
-          {filteredBuildOrders.length} build order{filteredBuildOrders.length > 1 ? 's' : ''}
-          {hasActiveFilters ? ` sur ${buildOrders.length}` : ''}
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="space-y-2">
+          <h1 className="text-2xl font-semibold tracking-tight">Build orders</h1>
+          <p className="text-muted-foreground">
+            {filteredBuildOrders.length} build order{filteredBuildOrders.length > 1 ? 's' : ''}
+            {hasActiveFilters ? ` sur ${buildOrders.length}` : ''}
+          </p>
+          {civFilter && (
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary">Builds : {civFilter}</Badge>
+              <Button type="button" variant="ghost" size="xs" onClick={clearCivFilter}>
+                <XIcon />
+                Retirer le filtre
+              </Button>
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Trier par</Label>
+          <Select value={sort} onValueChange={(value) => setSort((value as SortOption) ?? 'recent')}>
+            <SelectTrigger className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SORT_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <Card>
@@ -273,6 +333,16 @@ export function ListPage() {
                     {buildOrder.civ}
                   </CardTitle>
                   <CardDescription className="capitalize">{buildOrder.sourceType}</CardDescription>
+                  <CardAction>
+                    <LikeButton
+                      buildId={buildOrder.id}
+                      liked={buildOrder.liked ?? false}
+                      likeCount={buildOrder.likeCount ?? 0}
+                      onChange={(liked, likeCount) =>
+                        updateBuildOrderLikeState(buildOrder.id, liked, likeCount)
+                      }
+                    />
+                  </CardAction>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-3">
                   <div className="flex flex-wrap gap-2">

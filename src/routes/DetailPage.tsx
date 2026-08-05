@@ -5,6 +5,7 @@ import { useAuth } from '@clerk/clerk-react';
 import { getBuildOrder, deleteBuildOrder } from '@/lib/api';
 import type { BuildOrder, Visibility } from '@/lib/types';
 import { CivFlag } from '@/components/CivFlag';
+import { LikeButton } from '@/components/LikeButton';
 import { BuildOrderFlow } from '@/components/BuildOrderFlow';
 import { BuildOrderEditor } from '@/components/BuildOrderEditor';
 import { Scenarios } from '@/components/Scenarios';
@@ -75,7 +76,7 @@ export function DetailPage() {
       if (!token) throw new Error('Session expirée, reconnectez-vous.');
       await deleteBuildOrder(id, token);
       toast.success('Build order supprimé');
-      navigate('/');
+      navigate('/builds');
     } catch (error) {
       toast.error('Suppression impossible', {
         description: error instanceof Error ? error.message : undefined,
@@ -102,7 +103,7 @@ export function DetailPage() {
           <CardDescription>Il a peut-être été supprimé.</CardDescription>
         </CardHeader>
         <CardContent>
-          <Button render={<Link to="/" />}>Retour à la liste</Button>
+          <Button render={<Link to="/builds" />}>Retour à la liste</Button>
         </CardContent>
       </Card>
     );
@@ -128,7 +129,7 @@ export function DetailPage() {
               Source : {buildOrder.sourceType}
             </Badge>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <Avatar className="size-6">
               <AvatarImage src={buildOrder.owner?.avatar_url ?? undefined} />
               <AvatarFallback>{ownerInitial(buildOrder.owner)}</AvatarFallback>
@@ -136,6 +137,15 @@ export function DetailPage() {
             <span className="text-sm text-muted-foreground">
               Créé par {ownerDisplayName(buildOrder.owner)}
             </span>
+            <LikeButton
+              buildId={buildOrder.id}
+              liked={buildOrder.liked ?? false}
+              likeCount={buildOrder.likeCount ?? 0}
+              size="lg"
+              onChange={(liked, likeCount) =>
+                setBuildOrder((prev) => (prev ? { ...prev, liked, likeCount } : prev))
+              }
+            />
           </div>
         </div>
 
