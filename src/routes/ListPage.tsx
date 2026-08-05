@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '@clerk/clerk-react';
 import { listBuildOrders } from '@/lib/api';
@@ -69,6 +69,7 @@ const DIFFICULTY_OPTIONS = ['1', '2', '3', '4', '5'];
 
 export function ListPage() {
   const { isLoaded, isSignedIn, getToken } = useAuth();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const civFilter = searchParams.get('civ');
   const [buildOrders, setBuildOrders] = useState<BuildOrder[] | null>(null);
@@ -325,8 +326,11 @@ export function ListPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {filteredBuildOrders.map((buildOrder) => (
-            <Link key={buildOrder.id} to={`/build/${buildOrder.id}`}>
-              <Card className="h-full transition-colors hover:bg-muted/50">
+            <Card
+              key={buildOrder.id}
+              className="h-full cursor-pointer transition-colors hover:bg-muted/50"
+              onClick={() => navigate(`/build/${buildOrder.id}`)}
+            >
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <CivFlag civ={buildOrder.civ} size="sm" />
@@ -373,7 +377,11 @@ export function ListPage() {
                     </div>
                   )}
                   {buildOrder.owner && (
-                    <div className="flex items-center gap-2">
+                    <Link
+                      to={`/u/${buildOrder.owner.id}`}
+                      onClick={(event) => event.stopPropagation()}
+                      className="flex w-fit items-center gap-2 hover:underline"
+                    >
                       <Avatar className="size-5">
                         <AvatarImage src={buildOrder.owner.avatar_url ?? undefined} />
                         <AvatarFallback>{ownerInitial(buildOrder.owner)}</AvatarFallback>
@@ -381,11 +389,10 @@ export function ListPage() {
                       <span className="text-xs text-muted-foreground">
                         {ownerDisplayName(buildOrder.owner)}
                       </span>
-                    </div>
+                    </Link>
                   )}
                 </CardContent>
-              </Card>
-            </Link>
+            </Card>
           ))}
         </div>
       )}

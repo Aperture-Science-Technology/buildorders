@@ -11,6 +11,7 @@ import { EditPage } from '@/routes/EditPage';
 import { PlayPage } from '@/routes/PlayPage';
 import { GuildsPage } from '@/routes/GuildsPage';
 import { ProfilePage } from '@/routes/ProfilePage';
+import { UserProfilePage } from '@/routes/UserProfilePage';
 
 const CLERK_PUBLISHABLE_KEY = import.meta.env.PUBLIC_CLERK_PUBLISHABLE_KEY;
 
@@ -41,6 +42,7 @@ export function App() {
                 <Route path="/play/:id" element={<PlayPage />} />
                 <Route path="/guilds" element={<GuildsPage />} />
                 <Route path="/profile" element={<ProfilePage />} />
+                <Route path="/u/:id" element={<UserProfilePage />} />
               </Routes>
             </main>
           </div>

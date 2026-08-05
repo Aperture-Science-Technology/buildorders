@@ -129,13 +129,30 @@ export function DetailPage() {
             </Badge>
           </div>
           <div className="flex items-center gap-3">
-            <Avatar className="size-6">
-              <AvatarImage src={buildOrder.owner?.avatar_url ?? undefined} />
-              <AvatarFallback>{ownerInitial(buildOrder.owner)}</AvatarFallback>
-            </Avatar>
-            <span className="text-sm text-muted-foreground">
-              Créé par {ownerDisplayName(buildOrder.owner)}
-            </span>
+            {buildOrder.owner?.id ? (
+              <Link
+                to={`/u/${buildOrder.owner.id}`}
+                className="flex items-center gap-2 hover:underline"
+              >
+                <Avatar className="size-6">
+                  <AvatarImage src={buildOrder.owner?.avatar_url ?? undefined} />
+                  <AvatarFallback>{ownerInitial(buildOrder.owner)}</AvatarFallback>
+                </Avatar>
+                <span className="text-sm text-muted-foreground">
+                  Créé par {ownerDisplayName(buildOrder.owner)}
+                </span>
+              </Link>
+            ) : (
+              <>
+                <Avatar className="size-6">
+                  <AvatarImage src={buildOrder.owner?.avatar_url ?? undefined} />
+                  <AvatarFallback>{ownerInitial(buildOrder.owner)}</AvatarFallback>
+                </Avatar>
+                <span className="text-sm text-muted-foreground">
+                  Créé par {ownerDisplayName(buildOrder.owner)}
+                </span>
+              </>
+            )}
             <LikeButton
               buildId={buildOrder.id}
               liked={buildOrder.liked ?? false}

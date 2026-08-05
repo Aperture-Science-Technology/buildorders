@@ -122,11 +122,25 @@ function isUniqueViolation(error: { code?: string } | null): boolean {
   return error?.code === '23505';
 }
 
-async function handleGet(req: Request, userId: string): Promise<Response> {
+async function getMemberCounts(guildIds: string[]): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  if (guildIds.length === 0) return counts;
+  const { data, error } = await supabaseAdmin.from('guild_members').select('guild_id').in('guild_id', guildIds);
+  if (error) throw error;
+  for (const row of data ?? []) {
+    const gid = row.guild_id as string;
+    counts.set(gid, (counts.get(gid) ?? 0) + 1);
+  }
+  return counts;
+}
+
+async function handleGet(req: Request, userId: string | null): Promise<Response> {
   const { searchParams } = new URL(req.url);
 
   try {
     if (searchParams.get('mine') === 'true') {
+      if (!userId) return json({ error: 'Unauthorized' }, 401);
+
       const { data: memberships, error } = await supabaseAdmin
         .from('guild_members')
         .select('guild_id, role')
@@ -161,14 +175,39 @@ async function handleGet(req: Request, userId: string): Promise<Response> {
       const guild = await getGuild(id);
       if (!guild) return json({ error: 'Not found' }, 404);
 
-      const role = await getMemberRole(id, userId);
-      if (role === null) return json({ error: 'Not found' }, 404);
-
+      const role = userId ? await getMemberRole(id, userId) : null;
       const members = await getMembers(id);
       return json({ ...guild, role, members }, 200);
     }
 
-    return json({ error: 'paramètre manquant (mine ou id)' }, 400);
+    // No filter: public directory of every guild, lightweight (member_count
+    // only — full member lists stay on the ?id= detail view).
+    const { data: guilds, error } = await supabaseAdmin
+      .from('guilds')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) return json({ error: error.message }, 500);
+
+    const guildIds = (guilds ?? []).map((g) => g.id as string);
+    const memberCounts = await getMemberCounts(guildIds);
+
+    const roleByGuild = new Map<string, string>();
+    if (userId && guildIds.length > 0) {
+      const { data: memberships, error: membershipsError } = await supabaseAdmin
+        .from('guild_members')
+        .select('guild_id, role')
+        .eq('user_id', userId)
+        .in('guild_id', guildIds);
+      if (membershipsError) return json({ error: membershipsError.message }, 500);
+      for (const m of memberships ?? []) roleByGuild.set(m.guild_id as string, m.role as string);
+    }
+
+    const result = (guilds ?? []).map((g) => ({
+      ...g,
+      member_count: memberCounts.get(g.id as string) ?? 0,
+      role: roleByGuild.get(g.id as string) ?? null,
+    }));
+    return json(result, 200);
   } catch (err) {
     return json({ error: err instanceof Error ? err.message : 'Internal error' }, 500);
   }
@@ -380,6 +419,73 @@ async function handleRemoveMember(userId: string, body: RemoveMemberBody): Promi
   }
 }
 
+interface JoinGuildBody {
+  guild_id?: unknown;
+}
+
+async function handleJoin(userId: string, body: JoinGuildBody): Promise<Response> {
+  const guildId = typeof body.guild_id === 'string' ? body.guild_id : '';
+  if (!guildId) return json({ error: 'guild_id is required' }, 400);
+
+  try {
+    const guild = await getGuild(guildId);
+    if (!guild) return json({ error: 'Not found' }, 404);
+
+    const existingRole = await getMemberRole(guildId, userId);
+    if (existingRole !== null) {
+      const members = await getMembers(guildId);
+      return json({ ...guild, role: existingRole, members }, 200);
+    }
+
+    await ensureProfile(userId);
+
+    const { error } = await supabaseAdmin
+      .from('guild_members')
+      .insert({ guild_id: guildId, user_id: userId, role: 'member' });
+
+    if (error && !isUniqueViolation(error)) {
+      return json({ error: error.message }, 500);
+    }
+
+    const role = await getMemberRole(guildId, userId);
+    const members = await getMembers(guildId);
+    return json({ ...guild, role, members }, 200);
+  } catch (err) {
+    return json({ error: err instanceof Error ? err.message : 'Internal error' }, 500);
+  }
+}
+
+interface LeaveGuildBody {
+  guild_id?: unknown;
+}
+
+async function handleLeave(userId: string, body: LeaveGuildBody): Promise<Response> {
+  const guildId = typeof body.guild_id === 'string' ? body.guild_id : '';
+  if (!guildId) return json({ error: 'guild_id is required' }, 400);
+
+  try {
+    const guild = await getGuild(guildId);
+    if (!guild) return json({ error: 'Not found' }, 404);
+
+    const role = await getMemberRole(guildId, userId);
+    if (role === null) return json({ guild_id: guildId }, 200);
+    if (role === 'owner') {
+      return json({ error: 'Le propriétaire ne peut pas quitter sa guilde' }, 400);
+    }
+
+    const { error } = await supabaseAdmin
+      .from('guild_members')
+      .delete()
+      .eq('guild_id', guildId)
+      .eq('user_id', userId);
+    if (error) return json({ error: error.message }, 500);
+
+    return json({ guild_id: guildId }, 200);
+  } catch (err) {
+    return json({ error: err instanceof Error ? err.message : 'Internal error' }, 500);
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: CORS_HEADERS });
@@ -387,10 +493,36 @@ Deno.serve(async (req: Request) => {
 
   const { pathname } = new URL(req.url);
   const isMembersRoute = pathname.endsWith('/members');
+  const isJoinRoute = pathname.endsWith('/join');
+  const isLeaveRoute = pathname.endsWith('/leave');
+
+  if (req.method === 'GET' && !isMembersRoute && !isJoinRoute && !isLeaveRoute) {
+    // Public directory + detail reads must work without a token.
+    const userId = await getUserId(req);
+    return handleGet(req, userId);
+  }
 
   const userId = await getUserId(req);
   if (!userId) {
     return json({ error: 'Unauthorized' }, 401);
+  }
+
+  if (isJoinRoute) {
+    if (req.method === 'POST') {
+      const body = await readJson<JoinGuildBody>(req);
+      if (body === null) return json({ error: 'Invalid JSON body' }, 400);
+      return handleJoin(userId, body);
+    }
+    return json({ error: 'Method not allowed' }, 405);
+  }
+
+  if (isLeaveRoute) {
+    if (req.method === 'POST') {
+      const body = await readJson<LeaveGuildBody>(req);
+      if (body === null) return json({ error: 'Invalid JSON body' }, 400);
+      return handleLeave(userId, body);
+    }
+    return json({ error: 'Method not allowed' }, 405);
   }
 
   if (isMembersRoute) {
@@ -407,9 +539,6 @@ Deno.serve(async (req: Request) => {
     return json({ error: 'Method not allowed' }, 405);
   }
 
-  if (req.method === 'GET') {
-    return handleGet(req, userId);
-  }
   if (req.method === 'POST') {
     const body = await readJson<CreateGuildBody>(req);
     if (body === null) return json({ error: 'Invalid JSON body' }, 400);

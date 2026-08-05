@@ -1,13 +1,8 @@
-import { useEffect, useState, type FormEvent } from 'react';
-import { SignedIn, SignedOut, SignInButton, useAuth } from '@clerk/clerk-react';
+import { useEffect, useState, type FormEvent, type MouseEvent } from 'react';
+import { Link } from 'react-router-dom';
+import { SignInButton, useAuth } from '@clerk/clerk-react';
 import { toast } from 'sonner';
-import {
-  addGuildMember,
-  createGuild,
-  deleteGuild,
-  listMyGuilds,
-  removeGuildMember,
-} from '@/lib/api';
+import { createGuild, getGuild, joinGuild, leaveGuild, listAllGuilds } from '@/lib/api';
 import type { Guild } from '@/lib/types';
 import {
   Card,
@@ -15,6 +10,7 @@ import {
   CardTitle,
   CardDescription,
   CardContent,
+  CardAction,
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -22,7 +18,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Separator } from '@/components/ui/separator';
 import {
   Dialog,
   DialogContent,
@@ -33,13 +28,6 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
   Table,
   TableHeader,
   TableBody,
@@ -47,47 +35,22 @@ import {
   TableHead,
   TableCell,
 } from '@/components/ui/table';
-import { PlusIcon, Trash2Icon, UsersIcon } from 'lucide-react';
+import { ArrowLeftIcon, PlusIcon, UsersIcon } from 'lucide-react';
 
 export function GuildsPage() {
-  return (
-    <>
-      <SignedOut>
-        <Card className="mx-auto max-w-md text-center">
-          <CardHeader>
-            <CardTitle>Guildes</CardTitle>
-            <CardDescription>Connectez-vous pour voir et gérer vos guildes.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <SignInButton>
-              <Button>Se connecter</Button>
-            </SignInButton>
-          </CardContent>
-        </Card>
-      </SignedOut>
-      <SignedIn>
-        <GuildsContent />
-      </SignedIn>
-    </>
-  );
-}
-
-function GuildsContent() {
-  const { getToken } = useAuth();
+  const { isSignedIn, getToken } = useAuth();
   const [guilds, setGuilds] = useState<Guild[] | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [description, setDescription] = useState('');
-  const [deleteTarget, setDeleteTarget] = useState<Guild | null>(null);
-  const [deleting, setDeleting] = useState(false);
 
   async function loadGuilds() {
     try {
-      const token = await getToken();
-      if (!token) throw new Error('Session expirée, reconnectez-vous.');
-      const data = await listMyGuilds(token);
+      const token = isSignedIn ? await getToken() : null;
+      const data = await listAllGuilds(token);
       setGuilds(data);
     } catch (error) {
       toast.error('Impossible de charger les guildes', {
@@ -99,7 +62,7 @@ function GuildsContent() {
 
   useEffect(() => {
     loadGuilds();
-  }, []);
+  }, [isSignedIn]);
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -123,31 +86,13 @@ function GuildsContent() {
     }
   }
 
-  async function handleDelete() {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    try {
-      const token = await getToken();
-      if (!token) throw new Error('Session expirée, reconnectez-vous.');
-      await deleteGuild(token, deleteTarget.id);
-      toast.success('Guilde supprimée');
-      setDeleteTarget(null);
-      await loadGuilds();
-    } catch (error) {
-      toast.error('Suppression impossible', {
-        description: error instanceof Error ? error.message : undefined,
-      });
-    } finally {
-      setDeleting(false);
-    }
-  }
-
-  if (guilds === null) {
+  if (selectedId) {
     return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-64" />
-        <Skeleton className="h-40 w-full" />
-      </div>
+      <GuildDetail
+        id={selectedId}
+        onBack={() => setSelectedId(null)}
+        onChange={loadGuilds}
+      />
     );
   }
 
@@ -155,137 +100,126 @@ function GuildsContent() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Mes guildes</h1>
-          <p className="text-muted-foreground">Partagez vos builds avec votre équipe.</p>
+          <h1 className="text-2xl font-semibold tracking-tight">Guildes</h1>
+          <p className="text-muted-foreground">Trouvez une guilde et partagez vos builds.</p>
         </div>
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogTrigger render={<Button />}>
-            <PlusIcon />
-            Créer une guilde
-          </DialogTrigger>
-          <DialogContent>
-            <form onSubmit={handleCreate} className="space-y-4">
-              <DialogHeader>
-                <DialogTitle>Créer une guilde</DialogTitle>
-                <DialogDescription>
-                  Regroupez des joueurs pour partager des builds.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="guild-name">Nom</Label>
-                  <Input
-                    id="guild-name"
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                    required
-                  />
+        {isSignedIn && (
+          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+            <DialogTrigger render={<Button />}>
+              <PlusIcon />
+              Créer une guilde
+            </DialogTrigger>
+            <DialogContent>
+              <form onSubmit={handleCreate} className="space-y-4">
+                <DialogHeader>
+                  <DialogTitle>Créer une guilde</DialogTitle>
+                  <DialogDescription>
+                    Regroupez des joueurs pour partager des builds.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="guild-name">Nom</Label>
+                    <Input
+                      id="guild-name"
+                      value={name}
+                      onChange={(event) => setName(event.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="guild-slug">Slug</Label>
+                    <Input
+                      id="guild-slug"
+                      value={slug}
+                      onChange={(event) => setSlug(event.target.value)}
+                      placeholder="ma-guilde"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="guild-description">Description</Label>
+                    <Textarea
+                      id="guild-description"
+                      value={description}
+                      onChange={(event) => setDescription(event.target.value)}
+                      rows={3}
+                    />
+                  </div>
                 </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="guild-slug">Slug</Label>
-                  <Input
-                    id="guild-slug"
-                    value={slug}
-                    onChange={(event) => setSlug(event.target.value)}
-                    placeholder="ma-guilde"
-                    required
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="guild-description">Description</Label>
-                  <Textarea
-                    id="guild-description"
-                    value={description}
-                    onChange={(event) => setDescription(event.target.value)}
-                    rows={3}
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
-                  Annuler
-                </Button>
-                <Button type="submit" disabled={creating}>
-                  {creating ? 'Création…' : 'Créer'}
-                </Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
+                    Annuler
+                  </Button>
+                  <Button type="submit" disabled={creating}>
+                    {creating ? 'Création…' : 'Créer'}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
-      {guilds.length === 0 ? (
+      {guilds === null ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <Skeleton key={index} className="h-40" />
+          ))}
+        </div>
+      ) : guilds.length === 0 ? (
         <Card className="mx-auto max-w-md text-center">
           <CardHeader>
             <CardTitle>Aucune guilde</CardTitle>
-            <CardDescription>Créez votre première guilde pour commencer.</CardDescription>
+            <CardDescription>Créez la première guilde pour commencer.</CardDescription>
           </CardHeader>
         </Card>
       ) : (
-        <div className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {guilds.map((guild) => (
-            <GuildCard
+            <GuildDirectoryCard
               key={guild.id}
               guild={guild}
+              isSignedIn={Boolean(isSignedIn)}
               getToken={getToken}
+              onSelect={() => setSelectedId(guild.id)}
               onChange={loadGuilds}
-              onDeleteRequest={() => setDeleteTarget(guild)}
             />
           ))}
         </div>
       )}
-
-      <Dialog open={deleteTarget !== null} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Supprimer "{deleteTarget?.name}" ?</DialogTitle>
-            <DialogDescription>Cette action est irréversible.</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
-              Annuler
-            </Button>
-            <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
-              {deleting ? 'Suppression…' : 'Supprimer'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
 
-interface GuildCardProps {
+interface GuildDirectoryCardProps {
   guild: Guild;
+  isSignedIn: boolean;
   getToken: () => Promise<string | null>;
+  onSelect: () => void;
   onChange: () => Promise<void>;
-  onDeleteRequest: () => void;
 }
 
-function GuildCard({ guild, getToken, onChange, onDeleteRequest }: GuildCardProps) {
-  const canManage = guild.role === 'owner' || guild.role === 'admin';
-  const canDelete = guild.role === 'owner';
-  const [memberUserId, setMemberUserId] = useState('');
-  const [memberRole, setMemberRole] = useState<'admin' | 'member'>('member');
+function GuildDirectoryCard({
+  guild,
+  isSignedIn,
+  getToken,
+  onSelect,
+  onChange,
+}: GuildDirectoryCardProps) {
   const [submitting, setSubmitting] = useState(false);
 
-  async function handleAddMember(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!memberUserId.trim()) return;
+  async function handleJoin(event: MouseEvent) {
+    event.stopPropagation();
     setSubmitting(true);
     try {
       const token = await getToken();
       if (!token) throw new Error('Session expirée, reconnectez-vous.');
-      await addGuildMember(token, {
-        guild_id: guild.id,
-        user_id: memberUserId.trim(),
-        role: memberRole,
-      });
-      setMemberUserId('');
-      toast.success('Membre ajouté');
+      await joinGuild(token, guild.id);
+      toast.success(`Vous avez rejoint ${guild.name}`);
       await onChange();
     } catch (error) {
-      toast.error("Impossible d'ajouter ce membre", {
+      toast.error("Impossible de rejoindre cette guilde", {
         description: error instanceof Error ? error.message : undefined,
       });
     } finally {
@@ -293,110 +227,218 @@ function GuildCard({ guild, getToken, onChange, onDeleteRequest }: GuildCardProp
     }
   }
 
-  async function handleRemoveMember(userId: string) {
+  async function handleLeave(event: MouseEvent) {
+    event.stopPropagation();
+    setSubmitting(true);
     try {
       const token = await getToken();
       if (!token) throw new Error('Session expirée, reconnectez-vous.');
-      await removeGuildMember(token, { guild_id: guild.id, user_id: userId });
-      toast.success('Membre retiré');
+      await leaveGuild(token, guild.id);
+      toast.success(`Vous avez quitté ${guild.name}`);
       await onChange();
     } catch (error) {
-      toast.error('Impossible de retirer ce membre', {
+      toast.error('Impossible de quitter cette guilde', {
         description: error instanceof Error ? error.message : undefined,
       });
+    } finally {
+      setSubmitting(false);
     }
   }
 
   return (
-    <Card>
-      <CardHeader className="flex-row items-start justify-between">
-        <div>
-          <CardTitle className="flex items-center gap-2">
-            <UsersIcon className="size-4 text-muted-foreground" />
-            {guild.name}
-          </CardTitle>
-          <CardDescription>{guild.description || guild.slug}</CardDescription>
-        </div>
-        <div className="flex items-center gap-2">
+    <Card className="cursor-pointer transition-colors hover:bg-muted/50" onClick={onSelect}>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <UsersIcon className="size-4 text-muted-foreground" />
+          {guild.name}
+        </CardTitle>
+        <CardDescription>{guild.description || 'Pas de description.'}</CardDescription>
+        <CardAction>
+          <Badge variant="secondary">
+            {guild.member_count ?? 0} membre{(guild.member_count ?? 0) > 1 ? 's' : ''}
+          </Badge>
+        </CardAction>
+      </CardHeader>
+      <CardContent className="flex items-center justify-between gap-2">
+        {guild.role ? (
           <Badge variant="outline" className="capitalize">
             {guild.role}
           </Badge>
-          {canDelete && (
-            <Button
-              variant="destructive"
-              size="icon-sm"
-              aria-label="Supprimer la guilde"
-              onClick={onDeleteRequest}
-            >
-              <Trash2Icon />
+        ) : (
+          <span />
+        )}
+        {guild.role === 'owner' ? null : guild.role ? (
+          <Button variant="outline" size="sm" onClick={handleLeave} disabled={submitting}>
+            Quitter
+          </Button>
+        ) : isSignedIn ? (
+          <Button size="sm" onClick={handleJoin} disabled={submitting}>
+            Rejoindre
+          </Button>
+        ) : (
+          <SignInButton>
+            <Button size="sm" onClick={(event: MouseEvent) => event.stopPropagation()}>
+              Se connecter
             </Button>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Membre</TableHead>
-              <TableHead>Rôle</TableHead>
-              {canManage && <TableHead className="w-10" />}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {guild.members.map((member) => (
-              <TableRow key={member.user_id}>
-                <TableCell>{member.display_name || member.user_id}</TableCell>
-                <TableCell className="capitalize">{member.role}</TableCell>
-                {canManage && (
-                  <TableCell>
-                    {member.role !== 'owner' && (
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label="Retirer ce membre"
-                        onClick={() => handleRemoveMember(member.user_id)}
-                      >
-                        <Trash2Icon />
-                      </Button>
-                    )}
-                  </TableCell>
-                )}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-
-        {canManage && (
-          <>
-            <Separator />
-            <form onSubmit={handleAddMember} className="flex flex-wrap gap-2">
-              <Input
-                value={memberUserId}
-                onChange={(event) => setMemberUserId(event.target.value)}
-                placeholder="ID utilisateur Clerk"
-                aria-label="ID utilisateur"
-                className="flex-1"
-              />
-              <Select
-                value={memberRole}
-                onValueChange={(value) => setMemberRole((value as 'admin' | 'member') ?? 'member')}
-              >
-                <SelectTrigger className="w-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="member">Membre</SelectItem>
-                  <SelectItem value="admin">Admin</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button type="submit" disabled={submitting || !memberUserId.trim()}>
-                <PlusIcon />
-                Ajouter
-              </Button>
-            </form>
-          </>
+          </SignInButton>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+interface GuildDetailProps {
+  id: string;
+  onBack: () => void;
+  onChange: () => Promise<void>;
+}
+
+function GuildDetail({ id, onBack, onChange }: GuildDetailProps) {
+  const { isSignedIn, getToken } = useAuth();
+  const [guild, setGuild] = useState<Guild | null | undefined>(undefined);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function load() {
+    try {
+      const token = isSignedIn ? await getToken() : null;
+      const data = await getGuild(token, id);
+      setGuild(data);
+    } catch (error) {
+      toast.error('Impossible de charger cette guilde', {
+        description: error instanceof Error ? error.message : undefined,
+      });
+      setGuild(null);
+    }
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, isSignedIn]);
+
+  async function refresh() {
+    await load();
+    await onChange();
+  }
+
+  async function handleJoin() {
+    setSubmitting(true);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Session expirée, reconnectez-vous.');
+      await joinGuild(token, id);
+      toast.success('Guilde rejointe');
+      await refresh();
+    } catch (error) {
+      toast.error('Impossible de rejoindre cette guilde', {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleLeave() {
+    setSubmitting(true);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Session expirée, reconnectez-vous.');
+      await leaveGuild(token, id);
+      toast.success('Guilde quittée');
+      await refresh();
+    } catch (error) {
+      toast.error('Impossible de quitter cette guilde', {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <Button variant="ghost" size="sm" onClick={onBack}>
+        <ArrowLeftIcon />
+        Retour au répertoire
+      </Button>
+
+      {guild === undefined ? (
+        <Skeleton className="h-64 w-full" />
+      ) : guild === null ? (
+        <Card className="mx-auto max-w-md text-center">
+          <CardHeader>
+            <CardTitle>Guilde introuvable</CardTitle>
+          </CardHeader>
+        </Card>
+      ) : (
+        <>
+          <Card>
+            <CardHeader className="flex-row items-start justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-xl">
+                  <UsersIcon className="size-5 text-muted-foreground" />
+                  {guild.name}
+                </CardTitle>
+                <CardDescription>{guild.description || 'Pas de description.'}</CardDescription>
+              </div>
+              <Badge variant="secondary">
+                {guild.member_count ?? guild.members.length} membre
+                {(guild.member_count ?? guild.members.length) > 1 ? 's' : ''}
+              </Badge>
+            </CardHeader>
+            <CardContent className="flex items-center justify-between gap-2">
+              {guild.role ? (
+                <Badge variant="outline" className="capitalize">
+                  {guild.role}
+                </Badge>
+              ) : (
+                <span />
+              )}
+              {guild.role === 'owner' ? (
+                <Button size="sm" render={<Link to="/profile" />}>
+                  Gérer
+                </Button>
+              ) : guild.role ? (
+                <Button variant="outline" size="sm" onClick={handleLeave} disabled={submitting}>
+                  Quitter
+                </Button>
+              ) : isSignedIn ? (
+                <Button size="sm" onClick={handleJoin} disabled={submitting}>
+                  Rejoindre
+                </Button>
+              ) : (
+                <SignInButton>
+                  <Button size="sm">Se connecter</Button>
+                </SignInButton>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Membres</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Membre</TableHead>
+                    <TableHead>Rôle</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {guild.members.map((member) => (
+                    <TableRow key={member.user_id}>
+                      <TableCell>{member.display_name || member.user_id}</TableCell>
+                      <TableCell className="capitalize">{member.role}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </>
+      )}
+    </div>
   );
 }

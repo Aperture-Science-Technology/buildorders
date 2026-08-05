@@ -94,6 +94,7 @@ export interface Guild {
   role: string;
   members: GuildMember[];
   created_at: string;
+  member_count?: number;
 }
 
 export interface BuildShare {
@@ -109,4 +110,11 @@ export interface Profile {
   display_name: string | null;
   avatar_url: string | null;
   preferences: Record<string, unknown> | null;
+}
+
+export interface PublicUserProfile {
+  id: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  guilds: { id: string; name: string; slug: string; role: string }[];
 }
