@@ -5,6 +5,7 @@ import { parseBuildOrderUrl, type BuildOrderInput } from '@/lib/api';
 import { VISIBILITY_OPTIONS } from '@/components/VisibilityBadge';
 import { CIV_NAMES } from '@/lib/civs';
 import { iconIdFromDescription } from '@/lib/gameIcons';
+import { applyConditionsFromDescriptions } from '@/lib/conditions';
 import { BuildOrderEditor } from '@/components/BuildOrderEditor';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -145,16 +146,15 @@ export function BuildOrderForm({
       setSourceUrl(parsed.sourceUrl);
       setSourceType(parsed.sourceType);
       setNotes(parsed.notes ?? '');
-      setPhases(
-        parsed.phases.map((phase) => ({
-          ...phase,
-          actions: phase.actions.map((action) =>
-            action.iconId
-              ? action
-              : { ...action, iconId: iconIdFromDescription(action.description) },
-          ),
-        })),
-      );
+      const enrichedPhases = parsed.phases.map((phase) => ({
+        ...phase,
+        actions: phase.actions.map((action) =>
+          action.iconId
+            ? action
+            : { ...action, iconId: iconIdFromDescription(action.description) },
+        ),
+      }));
+      setPhases(applyConditionsFromDescriptions(enrichedPhases));
       setPhasesResetKey((key) => key + 1);
       setGameModes(parsed.gameModes ?? []);
       setStrengths(parsed.strengths ?? []);
