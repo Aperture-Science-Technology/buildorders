@@ -33,14 +33,11 @@ async function getUserId(req: Request): Promise<string | null> {
 
   const token = authHeader.slice('Bearer '.length);
   try {
-    const { data, errors } = await verifyToken(token, { secretKey: CLERK_SECRET_KEY });
-    if (errors || !data) {
-      console.error('Clerk token verification failed:', errors?.map((e) => e.message).join('; '));
-      return null;
-    }
-    return data.sub;
+    // @clerk/backend v3 : verifyToken retourne les claims directement et throw en cas d'échec.
+    const claims = await verifyToken(token, { secretKey: CLERK_SECRET_KEY });
+    return typeof claims?.sub === 'string' ? claims.sub : null;
   } catch (err) {
-    console.error('Clerk token verification threw:', err instanceof Error ? err.message : String(err));
+    console.error('Clerk token verification failed:', err instanceof Error ? err.message : String(err));
     return null;
   }
 }
