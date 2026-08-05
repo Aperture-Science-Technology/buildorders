@@ -43,6 +43,12 @@ async function getUserId(req: Request): Promise<string | null> {
   }
 }
 
+interface ProfilePatchPayload {
+  profile?: unknown;
+  display_name?: unknown;
+  avatar_url?: unknown;
+}
+
 interface BuildOrderPayload {
   id?: unknown;
   civ?: unknown;
@@ -169,6 +175,39 @@ async function ensureProfile(userId: string): Promise<void> {
   if (error) {
     console.error('Profile upsert failed:', error.message);
   }
+}
+
+const MAX_DISPLAY_NAME_LENGTH = 40;
+
+async function handlePatchProfile(userId: string, body: ProfilePatchPayload): Promise<Response> {
+  const row: Record<string, unknown> = {};
+
+  if (body.display_name !== undefined) {
+    if (typeof body.display_name !== 'string') {
+      return json({ error: 'display_name must be a string' }, 400);
+    }
+    const trimmed = body.display_name.trim();
+    if (trimmed.length > MAX_DISPLAY_NAME_LENGTH) {
+      return json({ error: `display_name must be at most ${MAX_DISPLAY_NAME_LENGTH} characters` }, 400);
+    }
+    row.display_name = trimmed;
+  }
+
+  if (body.avatar_url !== undefined) {
+    if (typeof body.avatar_url !== 'string') {
+      return json({ error: 'avatar_url must be a string' }, 400);
+    }
+    row.avatar_url = body.avatar_url;
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('profiles')
+    .upsert({ id: userId, ...row }, { onConflict: 'id' })
+    .select('id, display_name, avatar_url, preferences')
+    .single();
+
+  if (error) return json({ error: error.message }, 500);
+  return json(data, 200);
 }
 
 // Build ids shared directly with the user, or via a guild they're a member of.
@@ -352,11 +391,18 @@ Deno.serve(async (req: Request) => {
     return json({ error: 'Unauthorized' }, 401);
   }
 
-  let body: BuildOrderPayload;
+  let body: BuildOrderPayload & ProfilePatchPayload;
   try {
     body = await req.json();
   } catch {
     return json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  if (req.method === 'PATCH') {
+    const { searchParams } = new URL(req.url);
+    if (body.profile === true || searchParams.get('profile') === 'true') {
+      return handlePatchProfile(userId, body);
+    }
   }
 
   if (req.method === 'POST') {

@@ -141,6 +141,20 @@ export function getMyProfile(token: string): Promise<Profile> {
   return edgeCall<Profile>('build-orders', { query: { profile: 'true' }, token });
 }
 
+export interface UpdateProfileInput {
+  display_name?: string;
+  avatar_url?: string;
+}
+
+export function updateMyProfile(token: string, input: UpdateProfileInput): Promise<Profile> {
+  return edgeCall<Profile>('build-orders', {
+    method: 'PATCH',
+    token,
+    query: { profile: 'true' },
+    body: { profile: true, ...input },
+  });
+}
+
 export interface BuildOrderInput {
   civ: string;
   type: BuildOrder['type'];

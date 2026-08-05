@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { SignedIn, SignedOut, SignInButton, useAuth } from '@clerk/clerk-react';
 import { toast } from 'sonner';
-import { getMyProfile } from '@/lib/api';
+import { getMyProfile, updateMyProfile } from '@/lib/api';
 import type { Profile } from '@/lib/types';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
@@ -37,6 +37,8 @@ export function ProfilePage() {
 function ProfileContent() {
   const { getToken } = useAuth();
   const [profile, setProfile] = useState<Profile | null | undefined>(undefined);
+  const [displayName, setDisplayName] = useState('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,7 +48,10 @@ function ProfileContent() {
         const token = await getToken();
         if (!token) throw new Error('Session expirée, reconnectez-vous.');
         const data = await getMyProfile(token);
-        if (!cancelled) setProfile(data);
+        if (!cancelled) {
+          setProfile(data);
+          setDisplayName(data.display_name ?? '');
+        }
       } catch (error) {
         if (cancelled) return;
         toast.error('Impossible de charger le profil', {
@@ -62,6 +67,25 @@ function ProfileContent() {
       cancelled = true;
     };
   }, [getToken]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Session expirée, reconnectez-vous.');
+      const updated = await updateMyProfile(token, { display_name: displayName });
+      setProfile(updated);
+      setDisplayName(updated.display_name ?? '');
+      toast.success('Profil mis à jour');
+    } catch (error) {
+      toast.error('Impossible de mettre à jour le profil', {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
 
   if (profile === undefined) {
     return (
@@ -101,10 +125,22 @@ function ProfileContent() {
             <CardDescription>{profile.id}</CardDescription>
           </div>
         </CardHeader>
-        <CardContent className="space-y-1.5">
-          <Label htmlFor="display-name">Nom affiché</Label>
-          <Input id="display-name" value={profile.display_name ?? ''} disabled readOnly />
-          <p className="text-sm text-muted-foreground">La modification du profil arrive bientôt.</p>
+        <CardContent>
+          <form className="space-y-4" onSubmit={handleSubmit}>
+            <div className="space-y-1.5">
+              <Label htmlFor="display-name">Nom affiché</Label>
+              <Input
+                id="display-name"
+                value={displayName}
+                onChange={(event) => setDisplayName(event.target.value)}
+                maxLength={40}
+                disabled={saving}
+              />
+            </div>
+            <Button type="submit" disabled={saving}>
+              {saving ? 'Enregistrement...' : 'Enregistrer'}
+            </Button>
+          </form>
         </CardContent>
       </Card>
     </div>
