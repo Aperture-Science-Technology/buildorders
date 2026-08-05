@@ -17,6 +17,7 @@ interface BuildOrderRow {
   weaknesses: string[] | null;
   matchup_notes: MatchupNote[] | null;
   difficulty: number | null;
+  layout: Record<string, { x: number; y: number }> | null;
 }
 
 function mapRowToBuildOrder(row: BuildOrderRow): BuildOrder {
@@ -36,6 +37,7 @@ function mapRowToBuildOrder(row: BuildOrderRow): BuildOrder {
     weaknesses: row.weaknesses ?? undefined,
     matchupNotes: row.matchup_notes ?? undefined,
     difficulty: row.difficulty ?? undefined,
+    layout: row.layout ?? undefined,
   };
 }
 
@@ -76,6 +78,7 @@ export interface BuildOrderInput {
   weaknesses?: string[];
   matchupNotes?: MatchupNote[];
   difficulty?: number;
+  layout?: Record<string, { x: number; y: number }>;
 }
 
 function edgeFunctionUrl(): string {
@@ -137,7 +140,7 @@ export function createBuildOrder(input: BuildOrderInput, token: string): Promise
 
 export function updateBuildOrder(
   id: string,
-  input: BuildOrderInput,
+  input: Partial<BuildOrderInput>,
   token: string,
 ): Promise<BuildOrder> {
   return callEdgeFunction('PATCH', token, { id, ...input });

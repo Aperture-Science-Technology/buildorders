@@ -21,6 +21,7 @@ export interface BuildOrder {
   weaknesses?: string[];
   matchupNotes?: MatchupNote[];
   difficulty?: number;
+  layout?: Record<string, { x: number; y: number }>;
 }
 
 export interface Phase {
