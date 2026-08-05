@@ -1,4 +1,5 @@
 import { ClerkProvider } from '@clerk/clerk-react';
+import { ThemeProvider } from 'next-themes';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Header } from '@/components/Header';
 import { Toaster } from '@/components/ui/sonner';
@@ -22,22 +23,24 @@ export function App() {
   }
 
   return (
-    <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY} afterSignOutUrl="/">
-      <BrowserRouter>
-        <div className="min-h-screen bg-background">
-          <Header />
-          <main className="mx-auto max-w-6xl space-y-8 px-4 py-8">
-            <Routes>
-              <Route path="/" element={<ListPage />} />
-              <Route path="/build/:id" element={<DetailPage />} />
-              <Route path="/new" element={<NewPage />} />
-              <Route path="/edit/:id" element={<EditPage />} />
-              <Route path="/play/:id" element={<PlayPage />} />
-            </Routes>
-          </main>
-        </div>
-        <Toaster />
-      </BrowserRouter>
-    </ClerkProvider>
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+      <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY} afterSignOutUrl="/">
+        <BrowserRouter>
+          <div className="min-h-screen bg-background">
+            <Header />
+            <main className="mx-auto max-w-6xl space-y-8 px-4 py-8">
+              <Routes>
+                <Route path="/" element={<ListPage />} />
+                <Route path="/build/:id" element={<DetailPage />} />
+                <Route path="/new" element={<NewPage />} />
+                <Route path="/edit/:id" element={<EditPage />} />
+                <Route path="/play/:id" element={<PlayPage />} />
+              </Routes>
+            </main>
+          </div>
+          <Toaster />
+        </BrowserRouter>
+      </ClerkProvider>
+    </ThemeProvider>
   );
 }

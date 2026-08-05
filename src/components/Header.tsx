@@ -1,7 +1,34 @@
 import { Link } from 'react-router-dom';
+import { useTheme } from 'next-themes';
 import { SignedIn, SignedOut, SignInButton, UserButton } from '@clerk/clerk-react';
 import { Button } from '@/components/ui/button';
-import { PlusIcon, SwordsIcon } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { MoonIcon, PlusIcon, SunIcon, SwordsIcon } from 'lucide-react';
+
+function ThemeToggle() {
+  const { setTheme } = useTheme();
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={<Button variant="ghost" size="icon" aria-label="Changer de thème" />}
+      >
+        <SunIcon className="dark:hidden" />
+        <MoonIcon className="hidden dark:block" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={() => setTheme('light')}>Clair</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setTheme('dark')}>Sombre</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setTheme('system')}>Système</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 export function Header() {
   return (
@@ -17,6 +44,8 @@ export function Header() {
             <PlusIcon />
             Créer un build
           </Button>
+
+          <ThemeToggle />
 
           <SignedIn>
             <UserButton />
