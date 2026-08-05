@@ -21,6 +21,7 @@ import { toast } from 'sonner';
 import type { Action, BuildOrder, Phase } from '@/lib/types';
 import { updateBuildOrder } from '@/lib/api';
 import { AGE_LABELS, formatTime } from '@/lib/format';
+import { iconForAction } from '@/lib/gameIcons';
 import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -52,17 +53,23 @@ interface ActionNodeData extends Record<string, unknown> {
   description: string;
   at: number;
   kind?: Action['kind'];
+  iconId?: string;
   hasDependency?: boolean;
 }
 
 function ActionNode({ data }: NodeProps<Node<ActionNodeData, 'action'>>) {
   const Icon = data.kind ? ACTION_KIND_ICONS[data.kind] : DotIcon;
+  const gameIconSrc = iconForAction({ description: data.description, at: data.at, kind: data.kind, iconId: data.iconId });
   return (
     <div className="w-[280px] rounded-lg border bg-card text-card-foreground shadow-sm">
       <Handle type="target" position={Position.Top} className="!bg-muted-foreground" />
       <div className="flex items-start gap-3 p-3">
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted">
-          <Icon className="size-4 text-muted-foreground" />
+        <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted">
+          {gameIconSrc ? (
+            <img src={gameIconSrc} alt="" className="size-8 rounded-sm object-cover" />
+          ) : (
+            <Icon className="size-4 text-muted-foreground" />
+          )}
         </div>
         <div className="flex flex-1 flex-col gap-1">
           <span className="font-mono text-xs text-muted-foreground">
@@ -135,6 +142,7 @@ function buildFlowElements(buildOrder: BuildOrder): { nodes: Node[]; edges: Edge
           description: action.description,
           at: action.at,
           kind: action.kind,
+          iconId: action.iconId,
           hasDependency: Boolean(action.dependsOn?.length),
         },
         draggable: true,

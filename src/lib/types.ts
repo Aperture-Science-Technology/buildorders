@@ -57,6 +57,7 @@ export interface Action {
   description: string;
   kind?: 'build' | 'research' | 'train' | 'gather' | 'tech' | 'age-up';
   dependsOn?: string[];
+  iconId?: string;
 }
 
 export interface Scenario {
