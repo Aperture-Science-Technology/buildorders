@@ -24,7 +24,8 @@ import { toast } from 'sonner';
 import type { Action, BuildOrder, Phase } from '@/lib/types';
 import { updateBuildOrder } from '@/lib/api';
 import { AGE_LABELS, formatTime } from '@/lib/format';
-import { GAME_ICONS, iconForAction } from '@/lib/gameIcons';
+import { GAME_ICONS } from '@/lib/gameIcons';
+import { ActionDescription } from '@/components/ActionDescription';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -48,13 +49,6 @@ import {
 } from '@/components/ui/select';
 import { EditorContextMenu, type ContextMenuItem } from '@/components/EditorContextMenu';
 import {
-  HammerIcon,
-  FlaskConicalIcon,
-  SwordsIcon,
-  WheatIcon,
-  CogIcon,
-  TrendingUpIcon,
-  DotIcon,
   PlusIcon,
   Trash2Icon,
   SaveIcon,
@@ -64,7 +58,6 @@ import {
   ArrowDownUpIcon,
   PencilIcon,
   Rows3Icon,
-  type LucideIcon,
 } from 'lucide-react';
 
 const AGE_OPTIONS: { value: Phase['age']; label: string }[] = [
@@ -133,15 +126,6 @@ function findDependencyCycle(items: { id: string; dependsOn: string[] }[]): stri
   return cycle;
 }
 
-const ACTION_KIND_ICONS: Record<NonNullable<Action['kind']>, LucideIcon> = {
-  build: HammerIcon,
-  research: FlaskConicalIcon,
-  train: SwordsIcon,
-  gather: WheatIcon,
-  tech: CogIcon,
-  'age-up': TrendingUpIcon,
-};
-
 const ACTION_KIND_OPTIONS: { value: NonNullable<Action['kind']>; label: string }[] = [
   { value: 'build', label: 'Build' },
   { value: 'research', label: 'Research' },
@@ -151,9 +135,9 @@ const ACTION_KIND_OPTIONS: { value: NonNullable<Action['kind']>; label: string }
   { value: 'age-up', label: 'Age Up' },
 ];
 
-const COLUMN_WIDTH = 320;
-const ROW_HEIGHT = 140;
-const ROW_Y_OFFSET = 80;
+const COLUMN_WIDTH = 360;
+const ROW_HEIGHT = 180;
+const ROW_Y_OFFSET = 100;
 const CURSOR_NODE_ID = '__cursor__';
 
 const ACTION_CONTEXT_ITEMS: ContextMenuItem[] = [
@@ -218,26 +202,24 @@ interface MenuState {
 }
 
 function ActionNode({ id, data }: NodeProps<Node<ActionNodeData, 'action'>>) {
-  const Icon = data.kind ? ACTION_KIND_ICONS[data.kind] : DotIcon;
-  const gameIconSrc = iconForAction({ description: data.description, at: data.at, kind: data.kind, iconId: data.iconId });
   return (
     <div
-      className="group relative w-[280px] rounded-lg border bg-card text-card-foreground shadow-sm"
+      className="group relative w-[300px] rounded-lg border bg-card text-card-foreground shadow-sm"
       onDoubleClick={() => data.onEdit(id)}
     >
       <Handle type="target" position={Position.Top} className="!bg-muted-foreground" />
       <div className="flex items-start gap-3 p-3">
-        <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted">
-          {gameIconSrc ? (
-            <img src={gameIconSrc} alt="" className="size-8 rounded-sm object-cover" />
-          ) : (
-            <Icon className="size-4 text-muted-foreground" />
-          )}
-        </div>
         <div className="flex flex-1 flex-col gap-1">
           <span className="font-mono text-xs text-muted-foreground">{formatTime(data.at)}</span>
           <span className="text-sm font-medium leading-snug">
-            {data.description || 'Nouvelle action'}
+            <ActionDescription
+              action={{
+                description: data.description || 'Nouvelle action',
+                kind: data.kind,
+                iconId: data.iconId,
+              }}
+              iconSize={18}
+            />
           </span>
         </div>
         <Button
