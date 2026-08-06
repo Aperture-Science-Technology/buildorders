@@ -25,6 +25,7 @@ import { cn } from '@/lib/utils';
 import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ActionDescription } from '@/components/ActionDescription';
+import { VillagerBreakdown } from '@/components/VillagerBreakdown';
 import { GitBranchIcon, Link2Icon, SplitIcon } from 'lucide-react';
 
 const COLUMN_WIDTH = 360;
@@ -90,15 +91,17 @@ function ActionNode({ data }: NodeProps<Node<ActionNodeData, 'action'>>) {
 interface PhaseHeaderNodeData extends Record<string, unknown> {
   age: Phase['age'];
   timeStart: number;
+  targetResources?: Phase['targetResources'];
 }
 
 function PhaseHeaderNode({ data }: NodeProps<Node<PhaseHeaderNodeData, 'phaseHeader'>>) {
   return (
-    <div className="flex w-[280px] flex-col items-start gap-1">
+    <div className="flex w-[280px] flex-col items-start gap-2">
       <Badge>{AGE_LABELS[data.age]}</Badge>
       <span className="font-mono text-xs text-muted-foreground">
         {formatTime(data.timeStart)}
       </span>
+      {data.targetResources && <VillagerBreakdown resources={data.targetResources} size="sm" />}
     </div>
   );
 }
@@ -224,7 +227,7 @@ function buildFlowElements(buildOrder: BuildOrder): { nodes: Node[]; edges: Edge
       id: `phase-${phaseIndex}-header`,
       type: 'phaseHeader',
       position: { x, y: 0 },
-      data: { age: phase.age, timeStart: phase.timeStart },
+      data: { age: phase.age, timeStart: phase.timeStart, targetResources: phase.targetResources },
       draggable: false,
       selectable: false,
     });

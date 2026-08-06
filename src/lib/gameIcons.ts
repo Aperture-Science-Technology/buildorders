@@ -235,27 +235,68 @@ const DESCRIPTION_KEYWORD_ICONS: [string, string][] = [
   ['hunting', 'technologies_hunting-tradition-2'],
 ];
 
-export function iconIdFromDescription(description: string): string | undefined {
+type ActionVerb = 'build' | 'train' | 'research' | 'age-up' | 'gather';
+
+/** Guesses the verb driving an action's description, matched at the start of the sentence. */
+function detectActionVerb(description: string): ActionVerb | null {
+  const normalized = description.trim().toLowerCase();
+  if (/^(?:build|construct|place|make|put down)\b/.test(normalized)) return 'build';
+  if (/^(?:train|queue|produce|create|recruit|make)\b/.test(normalized)) return 'train';
+  if (/^(?:research|upgrade|tech)\b/.test(normalized)) return 'research';
+  if (/^(?:age up|advance|click (?:feudal|castle|imperial))\b/.test(normalized)) return 'age-up';
+  if (/^(?:move|send|rally|gather|put|assign|transfer)\b/.test(normalized)) return 'gather';
+  return null;
+}
+
+/**
+ * Finds the best keyword match for a given icon category within a description.
+ * Among all keywords that appear in the text, the one occurring furthest to the
+ * right wins — this matters for gather actions like "Move food vills to gold",
+ * where the destination resource (appearing last) is the one worth showing.
+ */
+function findKeywordForCategory(description: string, category: GameIconCategory): string | undefined {
   const normalized = description.toLowerCase();
-  for (const [keyword, iconId] of DESCRIPTION_KEYWORD_ICONS) {
-    if (normalized.includes(keyword)) return iconId;
+  const candidates = DESCRIPTION_KEYWORD_ICONS.filter(([, id]) => iconDef(id)?.category === category);
+
+  let best: { iconId: string; index: number } | null = null;
+  for (const [keyword, iconId] of candidates) {
+    const index = normalized.lastIndexOf(keyword);
+    if (index === -1) continue;
+    if (!best || index > best.index) best = { iconId, index };
   }
+  return best?.iconId;
+}
+
+export function iconIdFromDescription(description: string): string | undefined {
+  const verb = detectActionVerb(description);
+  if (verb === 'build') return findKeywordForCategory(description, 'building') ?? 'buildings_town-center-1';
+  if (verb === 'train') return findKeywordForCategory(description, 'unit') ?? 'units_villager-1';
+  if (verb === 'research') return findKeywordForCategory(description, 'tech') ?? 'technologies_forging';
+  if (verb === 'age-up') return 'buildings_capital-town-center';
+  if (verb === 'gather') return findKeywordForCategory(description, 'resource') ?? 'units_villager-1';
+
+  // No verb detected: fall back to a general keyword scan, preferring a
+  // non-resource match (building/unit/tech) over a resource one, since those
+  // are usually the more specific and visually distinctive icon.
+  const normalized = description.toLowerCase();
+  const matches = DESCRIPTION_KEYWORD_ICONS.filter(([keyword]) => normalized.includes(keyword)).sort(
+    (a, b) => b[0].length - a[0].length,
+  );
+  const nonResourceMatch = matches.find(([, id]) => iconDef(id)?.category !== 'resource');
+  if (nonResourceMatch) return nonResourceMatch[1];
+  return matches[0]?.[1];
+}
+
+/** Resolves the icon id an action should render: explicit id, then description inference, then kind default. */
+export function resolveIconId(action: Pick<Action, 'iconId' | 'description' | 'kind'>): string | undefined {
+  if (action.iconId && iconDef(action.iconId)) return action.iconId;
+  const inferredId = iconIdFromDescription(action.description);
+  if (inferredId && iconDef(inferredId)) return inferredId;
+  if (action.kind) return ACTION_KIND_DEFAULT_ICON[action.kind];
   return undefined;
 }
 
 export function iconForAction(action: Action): string {
-  if (action.iconId) {
-    const def = iconDef(action.iconId);
-    if (def) return def.src;
-  }
-  const inferredId = iconIdFromDescription(action.description);
-  if (inferredId) {
-    const def = iconDef(inferredId);
-    if (def) return def.src;
-  }
-  if (action.kind) {
-    const def = iconDef(ACTION_KIND_DEFAULT_ICON[action.kind]);
-    if (def) return def.src;
-  }
-  return '';
+  const id = resolveIconId(action);
+  return id ? (iconDef(id)?.src ?? '') : '';
 }

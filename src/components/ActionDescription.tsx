@@ -1,5 +1,5 @@
 import type { Action } from '@/lib/types';
-import { iconForAction } from '@/lib/gameIcons';
+import { GameIcon } from '@/components/GameIcon';
 import { cn } from '@/lib/utils';
 
 interface ActionDescriptionProps {
@@ -8,24 +8,24 @@ interface ActionDescriptionProps {
   className?: string;
 }
 
-const ICON_SIZE_CLASSES: Record<number, string> = {
-  16: 'size-4',
-  18: 'size-[18px]',
-  20: 'size-5',
-  24: 'size-6',
+const ICON_SIZE_MAP: Record<number, 'sm' | 'md' | 'lg' | 'xl'> = {
+  16: 'sm',
+  18: 'sm',
+  20: 'md',
+  24: 'md',
+  32: 'lg',
+  44: 'xl',
 };
 
 export function ActionDescription({ action, iconSize = 16, className }: ActionDescriptionProps) {
-  const iconSrc = iconForAction({ ...action, at: 0 });
   return (
-    <span className={cn('inline-flex items-center gap-1.5', className)}>
-      {iconSrc && (
-        <img
-          src={iconSrc}
-          alt=""
-          className={cn(ICON_SIZE_CLASSES[iconSize] ?? 'size-4', 'shrink-0 rounded-sm object-cover')}
-        />
-      )}
+    <span className={cn('inline-flex items-center gap-2', className)}>
+      <GameIcon
+        iconId={action.iconId}
+        kind={action.kind}
+        description={action.description}
+        size={ICON_SIZE_MAP[iconSize] ?? 'sm'}
+      />
       <span>{action.description}</span>
     </span>
   );

@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import type { Action, BuildOrder, Phase } from '@/lib/types';
 import { AGE_LABELS, formatTime, ownerDisplayName, ownerInitial } from '@/lib/format';
 import { CivFlag } from '@/components/CivFlag';
-import { ActionDescription } from '@/components/ActionDescription';
+import { GameIcon } from '@/components/GameIcon';
+import { VillagerBreakdown } from '@/components/VillagerBreakdown';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -25,11 +26,12 @@ interface TimelineEntry {
   kind?: Action['kind'];
   iconId?: string;
   phaseAge: Phase['age'];
+  phaseIndex: number;
 }
 
 function buildTimeline(buildOrder: BuildOrder): TimelineEntry[] {
   const entries: TimelineEntry[] = [];
-  for (const phase of buildOrder.phases) {
+  buildOrder.phases.forEach((phase, phaseIndex) => {
     for (const action of phase.actions) {
       entries.push({
         at: action.at,
@@ -37,10 +39,28 @@ function buildTimeline(buildOrder: BuildOrder): TimelineEntry[] {
         kind: action.kind,
         iconId: action.iconId,
         phaseAge: phase.age,
+        phaseIndex,
       });
     }
-  }
+  });
   return entries.sort((a, b) => a.at - b.at);
+}
+
+type ResourceName = 'food' | 'wood' | 'gold' | 'stone';
+const RESOURCE_ORDER: ResourceName[] = ['food', 'wood', 'gold', 'stone'];
+
+/** The resource with the highest villager count, food/wood/gold/stone as tie-break order. */
+function highestResource(resources: Partial<Record<ResourceName, number>>): ResourceName | null {
+  let best: ResourceName | null = null;
+  let bestValue = -Infinity;
+  for (const name of RESOURCE_ORDER) {
+    const value = resources[name];
+    if (value !== undefined && value > bestValue) {
+      bestValue = value;
+      best = name;
+    }
+  }
+  return best;
 }
 
 interface BuildOrderPlayerProps {
@@ -211,18 +231,41 @@ export function BuildOrderPlayer({ buildOrder }: BuildOrderPlayerProps) {
       </div>
 
       <Card className="flex-1">
-        <CardContent className="flex h-full flex-col items-center justify-center gap-6 py-12 text-center">
+        <CardContent className="flex h-full flex-col items-center justify-center gap-5 py-12 text-center">
           <Badge>{AGE_LABELS[currentAction.phaseAge]}</Badge>
-          <p className="max-w-2xl text-3xl font-semibold sm:text-4xl">
-            <ActionDescription action={currentAction} iconSize={24} />
-          </p>
+          <div className="flex flex-col items-center gap-5">
+            <GameIcon
+              iconId={currentAction.iconId}
+              kind={currentAction.kind}
+              description={currentAction.description}
+              size="xl"
+            />
+            <p className="max-w-2xl text-3xl font-semibold sm:text-4xl">{currentAction.description}</p>
+          </div>
+          {(() => {
+            const targetResources = buildOrder.phases[currentAction.phaseIndex]?.targetResources;
+            if (!targetResources) return null;
+            return (
+              <VillagerBreakdown
+                resources={targetResources}
+                size="md"
+                active={highestResource(targetResources)}
+              />
+            );
+          })()}
         </CardContent>
       </Card>
 
       {nextAction && (
-        <p className="flex items-center justify-center gap-1.5 text-center text-sm text-muted-foreground">
+        <p className="flex items-center justify-center gap-2 text-center text-sm text-muted-foreground">
           <span>Prochaine : {formatTime(nextAction.at)} —</span>
-          <ActionDescription action={nextAction} iconSize={16} />
+          <GameIcon
+            iconId={nextAction.iconId}
+            kind={nextAction.kind}
+            description={nextAction.description}
+            size="md"
+          />
+          <span>{nextAction.description}</span>
         </p>
       )}
 

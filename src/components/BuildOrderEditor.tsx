@@ -26,6 +26,7 @@ import { updateBuildOrder } from '@/lib/api';
 import { AGE_LABELS, formatTime } from '@/lib/format';
 import { GAME_ICONS } from '@/lib/gameIcons';
 import { ActionDescription } from '@/components/ActionDescription';
+import { VillagerBreakdown } from '@/components/VillagerBreakdown';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -217,6 +218,7 @@ interface PhaseHeaderNodeData extends Record<string, unknown> {
   age: Phase['age'];
   timeStart: number;
   targetVillagers?: number;
+  targetResources?: Phase['targetResources'];
   phaseIndex: number;
   onAddAction: (phaseIndex: number) => void;
   onEditHeader: (phaseIndex: number) => void;
@@ -323,6 +325,7 @@ function PhaseHeaderNode({ data }: NodeProps<Node<PhaseHeaderNodeData, 'phaseHea
       {data.title && <span className="text-sm font-semibold leading-snug">{data.title}</span>}
       <Badge>{AGE_LABELS[data.age]}</Badge>
       <span className="font-mono text-xs text-muted-foreground">{formatTime(data.timeStart)}</span>
+      {data.targetResources && <VillagerBreakdown resources={data.targetResources} size="sm" />}
       <Button
         type="button"
         variant="outline"
@@ -501,6 +504,7 @@ function buildEditorElements(
         age: phase.age,
         timeStart: phase.timeStart,
         targetVillagers: phase.targetVillagers,
+        targetResources: phase.targetResources,
         phaseIndex,
         onAddAction: handlers.onAddAction,
         onEditHeader: handlers.onEditHeader,
@@ -743,8 +747,7 @@ function nodesToPhases(nodes: Node[], edges: Edge[], originalPhases: Phase[]): P
     };
   }
 
-  return headers.map((header, phaseIndex) => {
-    const original = originalPhases[phaseIndex];
+  return headers.map((header) => {
     const orderedActions = (actionsByHeaderId.get(header.id) ?? [])
       .slice()
       .sort((a, b) => a.position.y - b.position.y)
@@ -754,7 +757,7 @@ function nodesToPhases(nodes: Node[], edges: Edge[], originalPhases: Phase[]): P
       title: header.data.title,
       age: header.data.age,
       timeStart: header.data.timeStart,
-      targetResources: original?.targetResources,
+      targetResources: header.data.targetResources,
       targetVillagers: header.data.targetVillagers,
       actions: orderedActions.map(nodeToAction),
     };
@@ -775,6 +778,10 @@ interface HeaderDraft {
   age: Phase['age'];
   timeStart: string;
   targetVillagers: string;
+  targetFood: string;
+  targetWood: string;
+  targetGold: string;
+  targetStone: string;
 }
 
 interface DecisionBranchDraft {
@@ -897,6 +904,10 @@ export function BuildOrderEditor({
       age: data.age,
       timeStart: String(data.timeStart),
       targetVillagers: data.targetVillagers !== undefined ? String(data.targetVillagers) : '',
+      targetFood: data.targetResources?.food !== undefined ? String(data.targetResources.food) : '',
+      targetWood: data.targetResources?.wood !== undefined ? String(data.targetResources.wood) : '',
+      targetGold: data.targetResources?.gold !== undefined ? String(data.targetResources.gold) : '',
+      targetStone: data.targetResources?.stone !== undefined ? String(data.targetResources.stone) : '',
     });
   }
 
@@ -1329,6 +1340,14 @@ export function BuildOrderEditor({
       }
     }
 
+    const targetResources: Phase['targetResources'] = {
+      food: headerDraft.targetFood.trim() ? Number(headerDraft.targetFood) || undefined : undefined,
+      wood: headerDraft.targetWood.trim() ? Number(headerDraft.targetWood) || undefined : undefined,
+      gold: headerDraft.targetGold.trim() ? Number(headerDraft.targetGold) || undefined : undefined,
+      stone: headerDraft.targetStone.trim() ? Number(headerDraft.targetStone) || undefined : undefined,
+    };
+    const hasTargetResources = Object.values(targetResources).some((value) => value !== undefined);
+
     const headerId = `phase-${headerDraft.phaseIndex}-header`;
     setNodes((current) =>
       current.map((node) =>
@@ -1341,6 +1360,7 @@ export function BuildOrderEditor({
                 age: headerDraft.age,
                 timeStart,
                 targetVillagers,
+                targetResources: hasTargetResources ? targetResources : undefined,
               },
             }
           : node,
@@ -1881,6 +1901,56 @@ export function BuildOrderEditor({
                     setHeaderDraft({ ...headerDraft, targetVillagers: event.target.value })
                   }
                 />
+              </div>
+              <div className="grid grid-cols-4 gap-2">
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="phase-target-food">Villageois sur Food</Label>
+                  <Input
+                    id="phase-target-food"
+                    type="number"
+                    min={0}
+                    value={headerDraft.targetFood}
+                    onChange={(event) =>
+                      setHeaderDraft({ ...headerDraft, targetFood: event.target.value })
+                    }
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="phase-target-wood">Villageois sur Wood</Label>
+                  <Input
+                    id="phase-target-wood"
+                    type="number"
+                    min={0}
+                    value={headerDraft.targetWood}
+                    onChange={(event) =>
+                      setHeaderDraft({ ...headerDraft, targetWood: event.target.value })
+                    }
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="phase-target-gold">Villageois sur Gold</Label>
+                  <Input
+                    id="phase-target-gold"
+                    type="number"
+                    min={0}
+                    value={headerDraft.targetGold}
+                    onChange={(event) =>
+                      setHeaderDraft({ ...headerDraft, targetGold: event.target.value })
+                    }
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="phase-target-stone">Villageois sur Stone</Label>
+                  <Input
+                    id="phase-target-stone"
+                    type="number"
+                    min={0}
+                    value={headerDraft.targetStone}
+                    onChange={(event) =>
+                      setHeaderDraft({ ...headerDraft, targetStone: event.target.value })
+                    }
+                  />
+                </div>
               </div>
             </div>
           )}
