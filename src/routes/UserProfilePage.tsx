@@ -84,26 +84,62 @@ export function UserProfilePage() {
 
   const displayName = profile.display_name?.trim() ? profile.display_name : 'Utilisateur inconnu';
   const primaryGuild = profile.guilds[0];
+  const totalLikes = builds?.reduce((sum, build) => sum + (build.likeCount ?? 0), 0);
+  const totalViews = builds?.reduce((sum, build) => sum + (build.viewCount ?? 0), 0);
 
   return (
     <div className="space-y-8">
-      <Card>
-        <CardHeader className="flex-row items-center gap-4">
-          <Avatar size="lg">
-            <AvatarImage src={profile.avatar_url ?? undefined} alt={displayName} />
-            <AvatarFallback>
-              <UserIcon />
-            </AvatarFallback>
-          </Avatar>
-          <div className="space-y-1.5">
-            <CardTitle className="text-xl">{displayName}</CardTitle>
-            {primaryGuild && (
-              <Link to="/guilds">
-                <Badge variant="secondary">{primaryGuild.name}</Badge>
-              </Link>
-            )}
+      <Card className="overflow-hidden">
+        <CardContent className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-4">
+            <Avatar size="lg" className="ring-4 ring-background shadow-md">
+              <AvatarImage src={profile.avatar_url ?? undefined} alt={displayName} />
+              <AvatarFallback>
+                <UserIcon />
+              </AvatarFallback>
+            </Avatar>
+            <div className="space-y-1.5">
+              <CardTitle className="text-2xl">{displayName}</CardTitle>
+              {primaryGuild && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Link to="/guilds">
+                    <Badge variant="secondary">{primaryGuild.name}</Badge>
+                  </Link>
+                  <Badge variant="outline" className="capitalize">
+                    {primaryGuild.role}
+                  </Badge>
+                </div>
+              )}
+            </div>
           </div>
-        </CardHeader>
+
+          <div className="flex divide-x rounded-lg border">
+            <div className="flex flex-1 flex-col items-center gap-1 px-6 py-3">
+              <span className="text-sm text-muted-foreground">Builds</span>
+              {builds === null ? (
+                <Skeleton className="h-8 w-10" />
+              ) : (
+                <span className="text-2xl font-bold">{builds.length}</span>
+              )}
+            </div>
+            <div className="flex flex-1 flex-col items-center gap-1 px-6 py-3">
+              <span className="text-sm text-muted-foreground">Likes</span>
+              {builds === null ? (
+                <Skeleton className="h-8 w-10" />
+              ) : (
+                <span className="text-2xl font-bold">{totalLikes}</span>
+              )}
+            </div>
+            <div className="flex flex-1 flex-col items-center gap-1 px-6 py-3">
+              <span className="text-sm text-muted-foreground">Vues</span>
+              {builds === null ? (
+                <Skeleton className="h-8 w-10" />
+              ) : (
+                <span className="text-2xl font-bold">{totalViews}</span>
+              )}
+            </div>
+          </div>
+        </CardContent>
       </Card>
 
       <section className="space-y-4">

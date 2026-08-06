@@ -20,10 +20,18 @@ import buildingsStoneMiningCamp from '@/assets/game/buildings_stone-mining-camp.
 import buildingsTower1 from '@/assets/game/buildings_tower-1.png';
 import buildingsTownCenter1 from '@/assets/game/buildings_town-center-1.png';
 
-import resourcesFoodGather from '@/assets/game/resources_food-gather.png';
-import resourcesGoldGather from '@/assets/game/resources_gold-gather.png';
-import resourcesStoneGather from '@/assets/game/resources_stone-gather.png';
-import resourcesWoodGather from '@/assets/game/resources_wood-gather.png';
+import resourcesBerrybush from '@/assets/game/resources_berrybush.png';
+import resourcesBoar from '@/assets/game/resources_boar.png';
+import resourcesCattle from '@/assets/game/resources_cattle.png';
+import resourcesDeer from '@/assets/game/resources_deer.png';
+import resourcesFish from '@/assets/game/resources_fish.png';
+import resourcesFood from '@/assets/game/resources_food.png';
+import resourcesGold from '@/assets/game/resources_gold.png';
+import resourcesRally from '@/assets/game/resources_rally.png';
+import resourcesRelics from '@/assets/game/resources_relics.png';
+import resourcesSheep from '@/assets/game/resources_sheep.png';
+import resourcesStone from '@/assets/game/resources_stone.png';
+import resourcesWood from '@/assets/game/resources_wood.png';
 
 import technologiesAgriculture3 from '@/assets/game/technologies_agriculture-3.png';
 import technologiesBodkinPoint from '@/assets/game/technologies_bodkin-point.png';
@@ -88,10 +96,18 @@ export const GAME_ICONS: GameIconDef[] = [
   { id: 'buildings_tower-1', category: 'building', label: 'Tower', src: buildingsTower1.src },
   { id: 'buildings_town-center-1', category: 'building', label: 'Town Center', src: buildingsTownCenter1.src },
   // resources
-  { id: 'resources_food-gather', category: 'resource', label: 'Food', src: resourcesFoodGather.src },
-  { id: 'resources_wood-gather', category: 'resource', label: 'Wood', src: resourcesWoodGather.src },
-  { id: 'resources_gold-gather', category: 'resource', label: 'Gold', src: resourcesGoldGather.src },
-  { id: 'resources_stone-gather', category: 'resource', label: 'Stone', src: resourcesStoneGather.src },
+  { id: 'resources_food', category: 'resource', label: 'Food', src: resourcesFood.src },
+  { id: 'resources_wood', category: 'resource', label: 'Wood', src: resourcesWood.src },
+  { id: 'resources_gold', category: 'resource', label: 'Gold', src: resourcesGold.src },
+  { id: 'resources_stone', category: 'resource', label: 'Stone', src: resourcesStone.src },
+  { id: 'resources_sheep', category: 'resource', label: 'Sheep', src: resourcesSheep.src },
+  { id: 'resources_boar', category: 'resource', label: 'Boar', src: resourcesBoar.src },
+  { id: 'resources_deer', category: 'resource', label: 'Deer', src: resourcesDeer.src },
+  { id: 'resources_berrybush', category: 'resource', label: 'Berry Bush', src: resourcesBerrybush.src },
+  { id: 'resources_fish', category: 'resource', label: 'Fish', src: resourcesFish.src },
+  { id: 'resources_cattle', category: 'resource', label: 'Cattle', src: resourcesCattle.src },
+  { id: 'resources_relics', category: 'resource', label: 'Relic', src: resourcesRelics.src },
+  { id: 'resources_rally', category: 'resource', label: 'Rally', src: resourcesRally.src },
   // technologies
   { id: 'technologies_agriculture-3', category: 'tech', label: 'Agriculture', src: technologiesAgriculture3.src },
   { id: 'technologies_bodkin-point', category: 'tech', label: 'Bodkin Point', src: technologiesBodkinPoint.src },
@@ -135,17 +151,37 @@ export const ACTION_KIND_DEFAULT_ICON: Record<NonNullable<Action['kind']>, strin
   'age-up': 'buildings_capital-town-center',
 };
 
+/** Old resource icon ids from before the real AOE4 icon set was added; kept so existing builds keep resolving. */
+const RESOURCE_ICON_ALIASES: Record<string, string> = {
+  'resources_food-gather': 'resources_food',
+  'resources_wood-gather': 'resources_wood',
+  'resources_gold-gather': 'resources_gold',
+  'resources_stone-gather': 'resources_stone',
+};
+
 export function iconDef(id: string): GameIconDef | undefined {
-  return GAME_ICONS.find((icon) => icon.id === id);
+  const resolvedId = RESOURCE_ICON_ALIASES[id] ?? id;
+  return GAME_ICONS.find((icon) => icon.id === resolvedId);
 }
 
 /** Ordered keyword → icon id pairs; more specific keywords must precede their substrings. */
 const DESCRIPTION_KEYWORD_ICONS: [string, string][] = [
-  // resources
-  ['food', 'resources_food-gather'],
-  ['wood', 'resources_wood-gather'],
-  ['gold', 'resources_gold-gather'],
-  ['stone', 'resources_stone-gather'],
+  // resources (specific gatherables before generic resource types, and before "stone" so
+  // "Mining Camp" text doesn't get shadowed by the generic stone icon)
+  ['sheep', 'resources_sheep'],
+  ['boar', 'resources_boar'],
+  ['deer', 'resources_deer'],
+  ['berry', 'resources_berrybush'],
+  ['berries', 'resources_berrybush'],
+  ['fish', 'resources_fish'],
+  ['cattle', 'resources_cattle'],
+  ['relic', 'resources_relics'],
+  ['rally', 'resources_rally'],
+  ['mining camp', 'buildings_mining-camp-1'],
+  ['food', 'resources_food'],
+  ['wood', 'resources_wood'],
+  ['gold', 'resources_gold'],
+  ['stone', 'resources_stone'],
   // units
   ['villager', 'units_villager-1'],
   ['vills', 'units_villager-1'],
@@ -175,7 +211,6 @@ const DESCRIPTION_KEYWORD_ICONS: [string, string][] = [
   ['mill', 'buildings_mill-1'],
   ['farm', 'buildings_farm-1'],
   ['lumber', 'buildings_lumber-camp-1'],
-  ['mining camp', 'buildings_mining-camp-1'],
   ['barracks', 'buildings_barracks-1'],
   ['stable', 'buildings_stable-1'],
   ['blacksmith', 'buildings_blacksmith-2'],

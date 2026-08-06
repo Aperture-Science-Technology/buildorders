@@ -4,11 +4,14 @@ import { SignedIn, SignedOut, SignInButton, useAuth } from '@clerk/clerk-react';
 import { toast } from 'sonner';
 import {
   addGuildMember,
+  approveJoinRequest,
   deleteBuildOrder,
   deleteGuild,
+  getGuild,
   getMyProfile,
   listMyBuilds,
   listMyGuilds,
+  rejectJoinRequest,
   removeGuildMember,
   updateBuildOrder,
   updateGuild,
@@ -51,7 +54,7 @@ import {
 } from '@/components/ui/select';
 import { VisibilityBadge, VISIBILITY_OPTIONS } from '@/components/VisibilityBadge';
 import { CivFlag } from '@/components/CivFlag';
-import { UserIcon, PlusIcon, Trash2Icon, PencilIcon, UsersIcon } from 'lucide-react';
+import { UserIcon, PlusIcon, Trash2Icon, PencilIcon, UsersIcon, CheckIcon, XIcon } from 'lucide-react';
 
 export function ProfilePage() {
   return (
@@ -488,6 +491,62 @@ function OwnedGuildCard({ guild, getToken, onChange }: OwnedGuildCardProps) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  const [joinRequests, setJoinRequests] = useState<Guild['joinRequests']>(undefined);
+  const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
+
+  async function loadJoinRequests() {
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Session expirée, reconnectez-vous.');
+      const data = await getGuild(token, guild.id);
+      setJoinRequests(data.joinRequests ?? []);
+    } catch (error) {
+      toast.error('Impossible de charger les demandes', {
+        description: error instanceof Error ? error.message : undefined,
+      });
+      setJoinRequests([]);
+    }
+  }
+
+  useEffect(() => {
+    loadJoinRequests();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [guild.id]);
+
+  async function handleApproveRequest(userId: string) {
+    setProcessingRequestId(userId);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Session expirée, reconnectez-vous.');
+      await approveJoinRequest(token, guild.id, userId);
+      toast.success('Demande acceptée');
+      await Promise.all([loadJoinRequests(), onChange()]);
+    } catch (error) {
+      toast.error("Impossible d'accepter cette demande", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setProcessingRequestId(null);
+    }
+  }
+
+  async function handleRejectRequest(userId: string) {
+    setProcessingRequestId(userId);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Session expirée, reconnectez-vous.');
+      await rejectJoinRequest(token, guild.id, userId);
+      toast.success('Demande refusée');
+      await loadJoinRequests();
+    } catch (error) {
+      toast.error('Impossible de refuser cette demande', {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setProcessingRequestId(null);
+    }
+  }
+
   async function handleEdit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSavingEdit(true);
@@ -630,6 +689,56 @@ function OwnedGuildCard({ guild, getToken, onChange }: OwnedGuildCardProps) {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <h3 className="text-sm font-medium">Demandes d'adhésion</h3>
+          {joinRequests === undefined ? (
+            <Skeleton className="h-10 w-full" />
+          ) : joinRequests.length > 0 ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Demandeur</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {joinRequests.map((request) => (
+                  <TableRow key={request.user_id}>
+                    <TableCell>{request.display_name || request.user_id}</TableCell>
+                    <TableCell>{new Date(request.created_at).toLocaleDateString('fr-FR')}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => handleApproveRequest(request.user_id)}
+                          disabled={processingRequestId === request.user_id}
+                        >
+                          <CheckIcon />
+                          Accepter
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleRejectRequest(request.user_id)}
+                          disabled={processingRequestId === request.user_id}
+                        >
+                          <XIcon />
+                          Refuser
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <p className="text-sm text-muted-foreground">Aucune demande en attente.</p>
+          )}
+        </div>
+
+        <Separator />
+
         <Table>
           <TableHeader>
             <TableRow>

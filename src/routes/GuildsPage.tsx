@@ -2,7 +2,15 @@ import { useEffect, useState, type FormEvent, type MouseEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { SignInButton, useAuth } from '@clerk/clerk-react';
 import { toast } from 'sonner';
-import { createGuild, getGuild, joinGuild, leaveGuild, listAllGuilds } from '@/lib/api';
+import {
+  approveJoinRequest,
+  createGuild,
+  getGuild,
+  joinGuild,
+  leaveGuild,
+  listAllGuilds,
+  rejectJoinRequest,
+} from '@/lib/api';
 import type { Guild } from '@/lib/types';
 import {
   Card,
@@ -35,7 +43,7 @@ import {
   TableHead,
   TableCell,
 } from '@/components/ui/table';
-import { ArrowLeftIcon, PlusIcon, UsersIcon } from 'lucide-react';
+import { ArrowLeftIcon, CheckIcon, PlusIcon, UsersIcon, XIcon } from 'lucide-react';
 
 export function GuildsPage() {
   const { isSignedIn, getToken } = useAuth();
@@ -216,10 +224,10 @@ function GuildDirectoryCard({
       const token = await getToken();
       if (!token) throw new Error('Session expirée, reconnectez-vous.');
       await joinGuild(token, guild.id);
-      toast.success(`Vous avez rejoint ${guild.name}`);
+      toast.success('Demande envoyée au propriétaire');
       await onChange();
     } catch (error) {
-      toast.error("Impossible de rejoindre cette guilde", {
+      toast.error("Impossible d'envoyer la demande", {
         description: error instanceof Error ? error.message : undefined,
       });
     } finally {
@@ -271,9 +279,11 @@ function GuildDirectoryCard({
           <Button variant="outline" size="sm" onClick={handleLeave} disabled={submitting}>
             Quitter
           </Button>
+        ) : guild.joinRequested ? (
+          <Badge variant="secondary">Demande envoyée</Badge>
         ) : isSignedIn ? (
           <Button size="sm" onClick={handleJoin} disabled={submitting}>
-            Rejoindre
+            Demander à rejoindre
           </Button>
         ) : (
           <SignInButton>
@@ -327,10 +337,44 @@ function GuildDetail({ id, onBack, onChange }: GuildDetailProps) {
       const token = await getToken();
       if (!token) throw new Error('Session expirée, reconnectez-vous.');
       await joinGuild(token, id);
-      toast.success('Guilde rejointe');
+      toast.success('Demande envoyée au propriétaire');
       await refresh();
     } catch (error) {
-      toast.error('Impossible de rejoindre cette guilde', {
+      toast.error("Impossible d'envoyer la demande", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleApprove(userId: string) {
+    setSubmitting(true);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Session expirée, reconnectez-vous.');
+      await approveJoinRequest(token, id, userId);
+      toast.success('Demande acceptée');
+      await refresh();
+    } catch (error) {
+      toast.error("Impossible d'accepter cette demande", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleReject(userId: string) {
+    setSubmitting(true);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Session expirée, reconnectez-vous.');
+      await rejectJoinRequest(token, id, userId);
+      toast.success('Demande refusée');
+      await refresh();
+    } catch (error) {
+      toast.error('Impossible de refuser cette demande', {
         description: error instanceof Error ? error.message : undefined,
       });
     } finally {
@@ -402,9 +446,11 @@ function GuildDetail({ id, onBack, onChange }: GuildDetailProps) {
                 <Button variant="outline" size="sm" onClick={handleLeave} disabled={submitting}>
                   Quitter
                 </Button>
+              ) : guild.joinRequested ? (
+                <Badge variant="secondary">Demande envoyée</Badge>
               ) : isSignedIn ? (
                 <Button size="sm" onClick={handleJoin} disabled={submitting}>
-                  Rejoindre
+                  Demander à rejoindre
                 </Button>
               ) : (
                 <SignInButton>
@@ -413,6 +459,60 @@ function GuildDetail({ id, onBack, onChange }: GuildDetailProps) {
               )}
             </CardContent>
           </Card>
+
+          {(guild.role === 'owner' || guild.role === 'admin') && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Demandes d'adhésion</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {guild.joinRequests && guild.joinRequests.length > 0 ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Demandeur</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {guild.joinRequests.map((request) => (
+                        <TableRow key={request.user_id}>
+                          <TableCell>{request.display_name || request.user_id}</TableCell>
+                          <TableCell>
+                            {new Date(request.created_at).toLocaleDateString('fr-FR')}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                size="sm"
+                                onClick={() => handleApprove(request.user_id)}
+                                disabled={submitting}
+                              >
+                                <CheckIcon />
+                                Accepter
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleReject(request.user_id)}
+                                disabled={submitting}
+                              >
+                                <XIcon />
+                                Refuser
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Aucune demande en attente.</p>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>

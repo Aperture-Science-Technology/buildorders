@@ -95,6 +95,8 @@ export interface Guild {
   members: GuildMember[];
   created_at: string;
   member_count?: number;
+  joinRequested?: boolean;
+  joinRequests?: { user_id: string; display_name: string; created_at: string }[];
 }
 
 export interface BuildShare {
