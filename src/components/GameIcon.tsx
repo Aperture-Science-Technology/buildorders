@@ -18,10 +18,10 @@ const SIZE_CLASSES: Record<NonNullable<GameIconProps['size']>, string> = {
 };
 
 const CATEGORY_COLOR_CLASSES: Record<GameIconCategory, string> = {
-  resource: 'bg-slate-700',
-  building: 'bg-blue-950',
-  unit: 'bg-blue-950',
-  tech: 'bg-teal-900',
+  resource: 'bg-slate-700 dark:bg-slate-600',
+  building: 'bg-blue-950 dark:bg-blue-800',
+  unit: 'bg-blue-950 dark:bg-blue-800',
+  tech: 'bg-teal-900 dark:bg-teal-800',
   other: 'bg-muted',
 };
 

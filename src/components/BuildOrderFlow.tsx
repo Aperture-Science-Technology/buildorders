@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow,
   Background,
   Controls,
   MiniMap,
+  Panel,
   Handle,
   Position,
   MarkerType,
@@ -16,6 +17,7 @@ import {
   type OnNodeDrag,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import { useTheme } from 'next-themes';
 import { useAuth } from '@clerk/clerk-react';
 import { toast } from 'sonner';
 import type { Action, ActionBranch, BuildOrder, Phase } from '@/lib/types';
@@ -24,10 +26,11 @@ import { AGE_LABELS, formatTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { ActionDescription } from '@/components/ActionDescription';
 import { VillagerBreakdown } from '@/components/VillagerBreakdown';
 import { getPhaseVillagers } from '@/lib/villagers';
-import { GitBranchIcon, Link2Icon, SplitIcon } from 'lucide-react';
+import { GitBranchIcon, Link2Icon, MaximizeIcon, MinimizeIcon, SplitIcon } from 'lucide-react';
 
 const COLUMN_WIDTH = 360;
 const ROW_HEIGHT = 180;
@@ -284,6 +287,26 @@ export function BuildOrderFlow({ buildOrder }: BuildOrderFlowProps) {
   const { userId, getToken } = useAuth();
   const canPersistLayout = Boolean(userId) && buildOrder.ownerId === userId;
 
+  const { resolvedTheme } = useTheme();
+  const dark = resolvedTheme === 'dark';
+
+  const fullscreenRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const toggleFullscreen = useCallback(async () => {
+    if (!document.fullscreenElement) {
+      await fullscreenRef.current?.requestFullscreen();
+    } else {
+      await document.exitFullscreen();
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
   const initialElements = useMemo(() => buildFlowElements(buildOrder), [buildOrder]);
   const [nodes, setNodes, onNodesChange] = useNodesState(initialElements.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialElements.edges);
@@ -340,26 +363,39 @@ export function BuildOrderFlow({ buildOrder }: BuildOrderFlowProps) {
   }
 
   return (
-    <ReactFlow
-      nodes={nodes}
-      edges={edges}
-      onNodesChange={onNodesChange}
-      onEdgesChange={onEdgesChange}
-      onNodeDragStop={handleNodeDragStop}
-      nodeTypes={nodeTypes}
-      fitView
-      proOptions={{ hideAttribution: true }}
-      panOnDrag
-      zoomOnScroll
-      zoomOnPinch
-      selectionOnDrag
-      panOnScroll={false}
-      nodesDraggable={true}
-      nodesConnectable={false}
-    >
-      <Background />
-      <Controls />
-      <MiniMap />
-    </ReactFlow>
+    <div ref={fullscreenRef} className={cn('h-full', isFullscreen && 'h-screen')}>
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onNodeDragStop={handleNodeDragStop}
+        nodeTypes={nodeTypes}
+        colorMode={dark ? 'dark' : 'light'}
+        fitView
+        proOptions={{ hideAttribution: true }}
+        panOnDrag
+        zoomOnScroll
+        zoomOnPinch
+        selectionOnDrag
+        panOnScroll={false}
+        nodesDraggable={true}
+        nodesConnectable={false}
+      >
+        <Background />
+        <Controls />
+        <MiniMap />
+        <Panel position="top-right">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={toggleFullscreen}
+            aria-label={isFullscreen ? 'Quitter le plein écran' : 'Plein écran'}
+          >
+            {isFullscreen ? <MinimizeIcon /> : <MaximizeIcon />}
+          </Button>
+        </Panel>
+      </ReactFlow>
+    </div>
   );
 }
