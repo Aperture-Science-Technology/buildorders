@@ -6,6 +6,7 @@ import { VISIBILITY_OPTIONS } from '@/components/VisibilityBadge';
 import { CIV_NAMES } from '@/lib/civs';
 import { iconIdFromDescription } from '@/lib/gameIcons';
 import { applyConditionsFromDescriptions } from '@/lib/conditions';
+import { extractVillagerAssignments } from '@/lib/villagers';
 import { BuildOrderEditor } from '@/components/BuildOrderEditor';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -154,7 +155,12 @@ export function BuildOrderForm({
             : { ...action, iconId: iconIdFromDescription(action.description) },
         ),
       }));
-      setPhases(applyConditionsFromDescriptions(enrichedPhases));
+      const phasesWithConditions = applyConditionsFromDescriptions(enrichedPhases);
+      const phasesWithVillagers = phasesWithConditions.map((phase) => {
+        const targetResources = extractVillagerAssignments(phase.actions.map((a) => a.description));
+        return Object.keys(targetResources).length ? { ...phase, targetResources } : phase;
+      });
+      setPhases(phasesWithVillagers);
       setPhasesResetKey((key) => key + 1);
       setGameModes(parsed.gameModes ?? []);
       setStrengths(parsed.strengths ?? []);

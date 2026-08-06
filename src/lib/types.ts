@@ -43,10 +43,10 @@ export interface Phase {
   timeStart: number;
   actions: Action[];
   targetResources?: {
-    food: number;
-    wood: number;
-    gold: number;
-    stone: number;
+    food?: number;
+    wood?: number;
+    gold?: number;
+    stone?: number;
   };
   targetVillagers?: number;
 }
