@@ -11,6 +11,7 @@ import { BuildOrderEditor } from '@/components/BuildOrderEditor';
 import { Scenarios } from '@/components/Scenarios';
 import { BuildShareManager } from '@/components/BuildShareManager';
 import { VisibilityBadge } from '@/components/VisibilityBadge';
+import { YouTubeEmbed } from '@/components/YouTubeEmbed';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -184,6 +185,8 @@ export function DetailPage() {
           )}
         </div>
       </div>
+
+      {buildOrder.sourceUrl && <YouTubeEmbed url={buildOrder.sourceUrl} />}
 
       <section className="space-y-4">
         <h2 className="text-xl font-semibold">Build Order</h2>
