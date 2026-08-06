@@ -302,6 +302,30 @@ export async function leaveGuild(token: string, guildId: string): Promise<void> 
   await edgeCall<unknown>('guilds/leave', { method: 'POST', token, body: { guild_id: guildId } });
 }
 
+export async function approveJoinRequest(
+  token: string,
+  guildId: string,
+  userId: string,
+): Promise<void> {
+  await edgeCall<unknown>('guilds/requests', {
+    method: 'POST',
+    token,
+    body: { guild_id: guildId, user_id: userId, action: 'approve' },
+  });
+}
+
+export async function rejectJoinRequest(
+  token: string,
+  guildId: string,
+  userId: string,
+): Promise<void> {
+  await edgeCall<unknown>('guilds/requests', {
+    method: 'POST',
+    token,
+    body: { guild_id: guildId, user_id: userId, action: 'reject' },
+  });
+}
+
 export interface CreateGuildInput {
   name: string;
   slug: string;

@@ -134,6 +134,43 @@ async function getMemberCounts(guildIds: string[]): Promise<Map<string, number>>
   return counts;
 }
 
+interface JoinRequestOut {
+  user_id: string;
+  display_name: string;
+  created_at: string;
+}
+
+async function isOwnerOrAdmin(guildId: string, userId: string): Promise<boolean> {
+  const role = await getMemberRole(guildId, userId);
+  return role === 'owner' || role === 'admin';
+}
+
+async function getJoinRequests(guildId: string): Promise<JoinRequestOut[]> {
+  const { data: requests, error } = await supabaseAdmin
+    .from('guild_join_requests')
+    .select('user_id, created_at')
+    .eq('guild_id', guildId)
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  if (!requests || requests.length === 0) return [];
+
+  const userIds = requests.map((r) => r.user_id as string);
+  const { data: profiles, error: profilesError } = await supabaseAdmin
+    .from('profiles')
+    .select('id, display_name')
+    .in('id', userIds);
+  if (profilesError) throw profilesError;
+
+  const nameById = new Map<string, string>();
+  for (const p of profiles ?? []) nameById.set(p.id as string, (p.display_name as string) ?? '');
+
+  return requests.map((r) => ({
+    user_id: r.user_id as string,
+    display_name: nameById.get(r.user_id as string) ?? '',
+    created_at: r.created_at as string,
+  }));
+}
+
 async function handleGet(req: Request, userId: string | null): Promise<Response> {
   const { searchParams } = new URL(req.url);
 
@@ -177,7 +214,25 @@ async function handleGet(req: Request, userId: string | null): Promise<Response>
 
       const role = userId ? await getMemberRole(id, userId) : null;
       const members = await getMembers(id);
-      return json({ ...guild, role, members }, 200);
+
+      let joinRequested = false;
+      if (role === null && userId) {
+        const { data: request, error: requestError } = await supabaseAdmin
+          .from('guild_join_requests')
+          .select('user_id')
+          .eq('guild_id', id)
+          .eq('user_id', userId)
+          .maybeSingle();
+        if (requestError) return json({ error: requestError.message }, 500);
+        joinRequested = request !== null;
+      }
+
+      let joinRequests: JoinRequestOut[] | undefined;
+      if (role === 'owner' || role === 'admin') {
+        joinRequests = await getJoinRequests(id);
+      }
+
+      return json({ ...guild, role, members, joinRequested, ...(joinRequests ? { joinRequests } : {}) }, 200);
     }
 
     // No filter: public directory of every guild, lightweight (member_count
@@ -192,6 +247,7 @@ async function handleGet(req: Request, userId: string | null): Promise<Response>
     const memberCounts = await getMemberCounts(guildIds);
 
     const roleByGuild = new Map<string, string>();
+    const requestedGuildIds = new Set<string>();
     if (userId && guildIds.length > 0) {
       const { data: memberships, error: membershipsError } = await supabaseAdmin
         .from('guild_members')
@@ -200,12 +256,21 @@ async function handleGet(req: Request, userId: string | null): Promise<Response>
         .in('guild_id', guildIds);
       if (membershipsError) return json({ error: membershipsError.message }, 500);
       for (const m of memberships ?? []) roleByGuild.set(m.guild_id as string, m.role as string);
+
+      const { data: requests, error: requestsError } = await supabaseAdmin
+        .from('guild_join_requests')
+        .select('guild_id')
+        .eq('user_id', userId)
+        .in('guild_id', guildIds);
+      if (requestsError) return json({ error: requestsError.message }, 500);
+      for (const r of requests ?? []) requestedGuildIds.add(r.guild_id as string);
     }
 
     const result = (guilds ?? []).map((g) => ({
       ...g,
       member_count: memberCounts.get(g.id as string) ?? 0,
       role: roleByGuild.get(g.id as string) ?? null,
+      joinRequested: requestedGuildIds.has(g.id as string),
     }));
     return json(result, 200);
   } catch (err) {
@@ -377,6 +442,12 @@ async function handleAddMember(userId: string, body: AddMemberBody): Promise<Res
       return json({ error: error.message }, 500);
     }
 
+    await supabaseAdmin
+      .from('guild_join_requests')
+      .delete()
+      .eq('guild_id', guildId)
+      .eq('user_id', targetUserId);
+
     return json(data, 201);
   } catch (err) {
     return json({ error: err instanceof Error ? err.message : 'Internal error' }, 500);
@@ -440,16 +511,15 @@ async function handleJoin(userId: string, body: JoinGuildBody): Promise<Response
     await ensureProfile(userId);
 
     const { error } = await supabaseAdmin
-      .from('guild_members')
-      .insert({ guild_id: guildId, user_id: userId, role: 'member' });
+      .from('guild_join_requests')
+      .upsert({ guild_id: guildId, user_id: userId }, { onConflict: 'guild_id,user_id' });
 
     if (error && !isUniqueViolation(error)) {
       return json({ error: error.message }, 500);
     }
 
-    const role = await getMemberRole(guildId, userId);
     const members = await getMembers(guildId);
-    return json({ ...guild, role, members }, 200);
+    return json({ ...guild, role: null, joinRequested: true, members }, 200);
   } catch (err) {
     return json({ error: err instanceof Error ? err.message : 'Internal error' }, 500);
   }
@@ -486,6 +556,89 @@ async function handleLeave(userId: string, body: LeaveGuildBody): Promise<Respon
   }
 }
 
+async function handleListJoinRequests(userId: string, req: Request): Promise<Response> {
+  const { searchParams } = new URL(req.url);
+  const guildId = searchParams.get('guild_id') ?? '';
+  if (!guildId) return json({ error: 'guild_id is required' }, 400);
+
+  try {
+    const guild = await getGuild(guildId);
+    if (!guild) return json({ error: 'Not found' }, 404);
+
+    if (!(await isOwnerOrAdmin(guildId, userId))) return json({ error: 'Forbidden' }, 403);
+
+    const requests = await getJoinRequests(guildId);
+    return json(requests, 200);
+  } catch (err) {
+    return json({ error: err instanceof Error ? err.message : 'Internal error' }, 500);
+  }
+}
+
+interface JoinRequestActionBody {
+  guild_id?: unknown;
+  user_id?: unknown;
+  action?: unknown;
+}
+
+async function handleJoinRequestAction(userId: string, body: JoinRequestActionBody): Promise<Response> {
+  const guildId = typeof body.guild_id === 'string' ? body.guild_id : '';
+  const targetUserId = typeof body.user_id === 'string' ? body.user_id : '';
+  const action = typeof body.action === 'string' ? body.action : '';
+  if (!guildId || !targetUserId) return json({ error: 'guild_id and user_id are required' }, 400);
+  if (action !== 'approve' && action !== 'reject') {
+    return json({ error: "action must be 'approve' or 'reject'" }, 400);
+  }
+
+  try {
+    const guild = await getGuild(guildId);
+    if (!guild) return json({ error: 'Not found' }, 404);
+
+    if (!(await isOwnerOrAdmin(guildId, userId))) return json({ error: 'Forbidden' }, 403);
+
+    const { data: request, error: requestError } = await supabaseAdmin
+      .from('guild_join_requests')
+      .select('user_id')
+      .eq('guild_id', guildId)
+      .eq('user_id', targetUserId)
+      .maybeSingle();
+    if (requestError) return json({ error: requestError.message }, 500);
+
+    if (action === 'reject') {
+      if (request === null) return json({ ok: true }, 200);
+      const { error } = await supabaseAdmin
+        .from('guild_join_requests')
+        .delete()
+        .eq('guild_id', guildId)
+        .eq('user_id', targetUserId);
+      if (error) return json({ error: error.message }, 500);
+      return json({ ok: true }, 200);
+    }
+
+    // approve
+    if (request === null) return json({ error: 'Not found' }, 404);
+
+    await ensureProfile(targetUserId);
+
+    const { error: insertError } = await supabaseAdmin
+      .from('guild_members')
+      .insert({ guild_id: guildId, user_id: targetUserId, role: 'member' });
+    if (insertError && !isUniqueViolation(insertError)) {
+      return json({ error: insertError.message }, 500);
+    }
+
+    const { error: deleteError } = await supabaseAdmin
+      .from('guild_join_requests')
+      .delete()
+      .eq('guild_id', guildId)
+      .eq('user_id', targetUserId);
+    if (deleteError) return json({ error: deleteError.message }, 500);
+
+    return json({ ok: true }, 200);
+  } catch (err) {
+    return json({ error: err instanceof Error ? err.message : 'Internal error' }, 500);
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: CORS_HEADERS });
@@ -495,8 +648,9 @@ Deno.serve(async (req: Request) => {
   const isMembersRoute = pathname.endsWith('/members');
   const isJoinRoute = pathname.endsWith('/join');
   const isLeaveRoute = pathname.endsWith('/leave');
+  const isRequestsRoute = pathname.endsWith('/requests');
 
-  if (req.method === 'GET' && !isMembersRoute && !isJoinRoute && !isLeaveRoute) {
+  if (req.method === 'GET' && !isMembersRoute && !isJoinRoute && !isLeaveRoute && !isRequestsRoute) {
     // Public directory + detail reads must work without a token.
     const userId = await getUserId(req);
     return handleGet(req, userId);
@@ -521,6 +675,18 @@ Deno.serve(async (req: Request) => {
       const body = await readJson<LeaveGuildBody>(req);
       if (body === null) return json({ error: 'Invalid JSON body' }, 400);
       return handleLeave(userId, body);
+    }
+    return json({ error: 'Method not allowed' }, 405);
+  }
+
+  if (isRequestsRoute) {
+    if (req.method === 'GET') {
+      return handleListJoinRequests(userId, req);
+    }
+    if (req.method === 'POST') {
+      const body = await readJson<JoinRequestActionBody>(req);
+      if (body === null) return json({ error: 'Invalid JSON body' }, 400);
+      return handleJoinRequestAction(userId, body);
     }
     return json({ error: 'Method not allowed' }, 405);
   }
