@@ -27,6 +27,7 @@ import { AGE_LABELS, formatTime } from '@/lib/format';
 import { GAME_ICONS } from '@/lib/gameIcons';
 import { ActionDescription } from '@/components/ActionDescription';
 import { VillagerBreakdown } from '@/components/VillagerBreakdown';
+import { getPhaseVillagers } from '@/lib/villagers';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -219,6 +220,7 @@ interface PhaseHeaderNodeData extends Record<string, unknown> {
   timeStart: number;
   targetVillagers?: number;
   targetResources?: Phase['targetResources'];
+  villagers: ReturnType<typeof getPhaseVillagers>;
   phaseIndex: number;
   onAddAction: (phaseIndex: number) => void;
   onEditHeader: (phaseIndex: number) => void;
@@ -325,7 +327,7 @@ function PhaseHeaderNode({ data }: NodeProps<Node<PhaseHeaderNodeData, 'phaseHea
       {data.title && <span className="text-sm font-semibold leading-snug">{data.title}</span>}
       <Badge>{AGE_LABELS[data.age]}</Badge>
       <span className="font-mono text-xs text-muted-foreground">{formatTime(data.timeStart)}</span>
-      {data.targetResources && <VillagerBreakdown resources={data.targetResources} size="sm" />}
+      <VillagerBreakdown resources={data.villagers} size="sm" />
       <Button
         type="button"
         variant="outline"
@@ -505,6 +507,7 @@ function buildEditorElements(
         timeStart: phase.timeStart,
         targetVillagers: phase.targetVillagers,
         targetResources: phase.targetResources,
+        villagers: getPhaseVillagers(phase),
         phaseIndex,
         onAddAction: handlers.onAddAction,
         onEditHeader: handlers.onEditHeader,

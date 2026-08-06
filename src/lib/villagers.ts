@@ -1,4 +1,8 @@
+import type { Phase } from '@/lib/types';
+
 type ResourceName = 'food' | 'wood' | 'gold' | 'stone';
+
+const RESOURCE_ORDER: ResourceName[] = ['food', 'wood', 'gold', 'stone'];
 
 const PATTERNS: RegExp[] = [
   /(\d+)\s*(?:vills?|villagers?)?\s*(?:to|on|at|onto|into)\s*(food|wood|gold|stone)/gi,
@@ -25,4 +29,26 @@ export function extractVillagerAssignments(descriptions: string[]): Partial<Reco
   }
 
   return state;
+}
+
+/** The villager-per-resource breakdown for a phase: explicit targetResources if set, else extracted from action text. */
+export function getPhaseVillagers(phase: Phase): Partial<Record<ResourceName, number>> {
+  if (phase.targetResources && Object.values(phase.targetResources).some((v) => typeof v === 'number' && v > 0)) {
+    return phase.targetResources;
+  }
+  return extractVillagerAssignments(phase.actions.map((a) => a.description));
+}
+
+/** The resource with the highest villager count, food/wood/gold/stone as tie-break order. */
+export function highestVillagerResource(resources: Partial<Record<ResourceName, number>>): ResourceName | null {
+  let best: ResourceName | null = null;
+  let bestValue = -Infinity;
+  for (const name of RESOURCE_ORDER) {
+    const value = resources[name];
+    if (value !== undefined && value > bestValue) {
+      bestValue = value;
+      best = name;
+    }
+  }
+  return best;
 }

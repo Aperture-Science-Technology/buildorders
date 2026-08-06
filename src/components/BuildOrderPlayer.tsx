@@ -5,6 +5,7 @@ import { AGE_LABELS, formatTime, ownerDisplayName, ownerInitial } from '@/lib/fo
 import { CivFlag } from '@/components/CivFlag';
 import { GameIcon } from '@/components/GameIcon';
 import { VillagerBreakdown } from '@/components/VillagerBreakdown';
+import { getPhaseVillagers, highestVillagerResource } from '@/lib/villagers';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -44,23 +45,6 @@ function buildTimeline(buildOrder: BuildOrder): TimelineEntry[] {
     }
   });
   return entries.sort((a, b) => a.at - b.at);
-}
-
-type ResourceName = 'food' | 'wood' | 'gold' | 'stone';
-const RESOURCE_ORDER: ResourceName[] = ['food', 'wood', 'gold', 'stone'];
-
-/** The resource with the highest villager count, food/wood/gold/stone as tie-break order. */
-function highestResource(resources: Partial<Record<ResourceName, number>>): ResourceName | null {
-  let best: ResourceName | null = null;
-  let bestValue = -Infinity;
-  for (const name of RESOURCE_ORDER) {
-    const value = resources[name];
-    if (value !== undefined && value > bestValue) {
-      bestValue = value;
-      best = name;
-    }
-  }
-  return best;
 }
 
 interface BuildOrderPlayerProps {
@@ -243,13 +227,16 @@ export function BuildOrderPlayer({ buildOrder }: BuildOrderPlayerProps) {
             <p className="max-w-2xl text-3xl font-semibold sm:text-4xl">{currentAction.description}</p>
           </div>
           {(() => {
-            const targetResources = buildOrder.phases[currentAction.phaseIndex]?.targetResources;
-            if (!targetResources) return null;
+            const phase = buildOrder.phases[currentAction.phaseIndex];
+            const villagers = phase ? getPhaseVillagers(phase) : undefined;
+            const hasVillagers =
+              villagers && Object.values(villagers).some((v) => typeof v === 'number' && v > 0);
+            if (!hasVillagers) return null;
             return (
               <VillagerBreakdown
-                resources={targetResources}
+                resources={villagers}
                 size="md"
-                active={highestResource(targetResources)}
+                active={highestVillagerResource(villagers)}
               />
             );
           })()}
