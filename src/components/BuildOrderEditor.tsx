@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow,
   Background,
   Controls,
   MiniMap,
+  Panel,
   Handle,
   Position,
   MarkerType,
@@ -20,6 +21,7 @@ import {
   type ReactFlowInstance,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import { useTheme } from 'next-themes';
 import { toast } from 'sonner';
 import type { Action, ActionBranch, BuildOrder, Phase } from '@/lib/types';
 import { updateBuildOrder } from '@/lib/api';
@@ -58,6 +60,8 @@ import {
   Link2Icon,
   Link2OffIcon,
   ArrowDownUpIcon,
+  MaximizeIcon,
+  MinimizeIcon,
   PencilIcon,
   Rows3Icon,
   SplitIcon,
@@ -841,6 +845,26 @@ export function BuildOrderEditor({
   const [menuState, setMenuState] = useState<MenuState | null>(null);
   const [linkFrom, setLinkFrom] = useState<string | null>(null);
   const [cursorFlowPos, setCursorFlowPos] = useState<{ x: number; y: number } | null>(null);
+
+  const { resolvedTheme } = useTheme();
+  const dark = resolvedTheme === 'dark';
+
+  const fullscreenRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const toggleFullscreen = useCallback(async () => {
+    if (!document.fullscreenElement) {
+      await fullscreenRef.current?.requestFullscreen();
+    } else {
+      await document.exitFullscreen();
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
 
   const nodesRef = useRef<Node[]>([]);
   useEffect(() => {
@@ -1634,7 +1658,11 @@ export function BuildOrderEditor({
         </div>
       )}
 
-      <div className="relative min-h-0 flex-1" onMouseMove={handlePointerMoveForLink}>
+      <div
+        ref={fullscreenRef}
+        className={cn('relative min-h-0 flex-1', isFullscreen && 'h-screen')}
+        onMouseMove={handlePointerMoveForLink}
+      >
         {linkFrom && (
           <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center">
             <Badge className="pointer-events-auto">
@@ -1657,6 +1685,7 @@ export function BuildOrderEditor({
             reactFlowInstanceRef.current = instance;
           }}
           nodeTypes={nodeTypes}
+          colorMode={dark ? 'dark' : 'light'}
           fitView
           proOptions={{ hideAttribution: true }}
           panOnDrag
@@ -1671,6 +1700,17 @@ export function BuildOrderEditor({
           <Background />
           <Controls />
           <MiniMap />
+          <Panel position="top-right">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={toggleFullscreen}
+              aria-label={isFullscreen ? 'Quitter le plein écran' : 'Plein écran'}
+            >
+              {isFullscreen ? <MinimizeIcon /> : <MaximizeIcon />}
+            </Button>
+          </Panel>
         </ReactFlow>
       </div>
 
